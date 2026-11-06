@@ -1,0 +1,153 @@
+/* Checker Tambang — warna mengikuti logo TMG, bisa diubah di :root */
+:root{
+  /* warna logo PT. Trass Multi Guna: merah #e81e2b, biru tua #34364f */
+  --utama:#d91c28; --utama-tekan:#b5141f; --utama-muda:#fdeaea;
+  --navy:#2f3252; --utama-tua:var(--navy);
+  --hijau:#15803d; --bahaya:#c81e1e;
+  --latar:#f4f5f8; --kartu:#ffffff; --teks:#1d1f2b; --redup:#5f6375; --garis:#e2e4ec;
+  --radius:14px; --bayang:0 1px 2px rgba(0,0,0,.05),0 4px 14px rgba(0,0,0,.05);
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{font:15px/1.45 var(--font);background:var(--latar);color:var(--teks);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+[hidden]{display:none!important}
+svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+h1,h2,h3{margin:0;line-height:1.2}
+h2{font-size:19px} h3{font-size:15px;margin-bottom:12px;color:var(--utama-tua)}
+.redup{color:var(--redup)} .kecil{font-size:13px} .tengah{text-align:center}
+.merah{color:var(--bahaya)} .hijau{color:var(--hijau)}
+
+/* tombol & input */
+.tombol{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 14px;border-radius:10px;border:1px solid var(--garis);background:var(--kartu);font-weight:600;font-size:14px;white-space:nowrap}
+.tombol.utama{background:var(--utama);border-color:var(--utama);color:#fff}
+.tombol.utama:active{background:var(--utama-tekan)}
+.tombol.bahaya{color:var(--bahaya)}
+.tombol.kecil{padding:6px 11px;font-size:13px}
+.tautan{background:none;border:0;color:var(--utama);font-weight:600;padding:4px}
+input,select,textarea{padding:10px 12px;border:1px solid var(--garis);border-radius:10px;background:var(--kartu);min-width:0;width:100%;font-size:16px}
+textarea{resize:vertical;min-height:70px}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--utama);outline-offset:1px}
+label{display:grid;gap:5px;font-size:13px;font-weight:600;color:var(--redup)}
+label input,label select,label textarea{color:var(--teks);font-weight:400}
+.lbl{font-size:13px;font-weight:600;color:var(--redup);margin:4px 0 6px}
+
+/* masuk */
+.masuk{min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 20% 10%,var(--utama-muda),transparent 55%),var(--latar)}
+.masuk-kartu{background:var(--kartu);padding:28px 24px;border-radius:22px;box-shadow:var(--bayang);width:min(360px,100%);text-align:center}
+.logo-masuk{width:180px;height:auto;display:block;margin:0 auto 4px}
+.logo-kecil{border-radius:8px}
+.masuk-kartu h1{font-size:21px;margin:10px 0 4px}
+.pilih-pengguna{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:16px 0}
+.pilih-pengguna button{padding:8px 14px;border-radius:999px;border:1px solid var(--garis);background:var(--kartu);font-weight:600}
+.pilih-pengguna button.aktif{background:var(--utama);color:#fff;border-color:var(--utama)}
+.pin-titik{display:flex;gap:12px;justify-content:center;margin:8px 0 16px}
+.pin-titik i{width:14px;height:14px;border-radius:50%;border:2px solid var(--utama)}
+.pin-titik i.isi{background:var(--utama)}
+.pin-titik.salah{animation:goyang .3s}
+@keyframes goyang{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.pad button{padding:14px;border-radius:14px;border:0;background:var(--latar);font-size:20px;font-weight:600}
+.pad button:active{background:var(--utama-muda)}
+
+/* tata letak */
+.atas{position:sticky;top:0;z-index:20;display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:var(--kartu);border-bottom:1px solid var(--garis)}
+.merek{display:flex;align-items:center;gap:10px;font-weight:800;font-size:15px}
+.pengguna{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px}
+main{max-width:860px;margin:0 auto;padding:16px 16px 100px}
+.hal{display:none}.hal.aktif{display:block}
+.hal-kepala{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.hal-kepala input[type=month]{width:auto}
+.aksi{display:flex;gap:8px;align-items:center}
+.aksi.wrap{flex-wrap:wrap}.aksi.wrap select{width:auto}
+.panel{background:var(--kartu);border:1px solid var(--garis);border-radius:var(--radius);padding:16px;margin-bottom:14px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.isian{display:grid;gap:12px}
+.dua-kolom{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.dua-kolom .panel{margin-bottom:14px}
+
+/* chip */
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.chip{padding:8px 14px;border-radius:999px;border:1px solid var(--garis);background:var(--kartu);font-weight:600;font-size:14px}
+.chip.aktif{background:var(--utama);color:#fff;border-color:var(--utama)}
+
+/* baris dinamis (alat, lain-lain, penjualan) */
+.baris-dinamis{display:grid;gap:8px;padding:10px;border:1px dashed var(--garis);border-radius:12px;margin-bottom:8px;background:#fafbfd}
+.baris-dinamis .atas-baris{display:flex;gap:8px;align-items:center}
+.baris-dinamis .atas-baris input{flex:1}
+.baris-dinamis .tiga{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.baris-dinamis .dua{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.baris-dinamis label{font-size:12px}
+.baris-dinamis .tiga input,.baris-dinamis .dua input{padding:9px 8px;font-size:15px}
+.btn-hapus{width:38px;height:38px;flex:none;border:1px solid var(--garis);border-radius:10px;background:var(--kartu);color:var(--bahaya);font-size:20px;line-height:1}
+.subtotal{font-size:13px;color:var(--redup);text-align:right}
+.subtotal b{color:var(--teks)}
+.total-baris{display:flex;justify-content:space-between;padding:10px 0 0;border-top:1px solid var(--garis);margin-top:6px;font-weight:700}
+
+/* ringkas lengket */
+.ringkas-lengket{position:sticky;bottom:72px;z-index:10;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;background:var(--navy);color:#fff;border-radius:14px;padding:10px 12px;margin:6px 0 12px;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.ringkas-lengket div{min-width:0}
+.ringkas-lengket small{display:block;font-size:11px;opacity:.7}
+.ringkas-lengket b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.aksi-form{display:grid;grid-template-columns:1fr 1.4fr;gap:10px}
+.aksi-form .tombol{padding:14px;font-size:15px}
+
+/* riwayat */
+.daftar-laporan{display:grid;gap:10px}
+.lap{background:var(--kartu);border:1px solid var(--garis);border-radius:var(--radius);padding:14px 16px;display:grid;gap:6px}
+.lap .kepala{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.lap .meta{font-size:13px;color:var(--redup)}
+.lap .angka3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:13px}
+.lap .angka3 b{display:block;font-size:14px}
+.lap .aksi{justify-content:flex-end;flex-wrap:wrap}
+.kosong{padding:40px 10px;text-align:center;color:var(--redup)}
+
+/* rekap */
+.kartu-angka{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.angka{background:var(--kartu);border:1px solid var(--garis);border-radius:var(--radius);padding:14px}
+.angka small{color:var(--redup);font-weight:600;font-size:12px}
+.angka b{display:block;font-size:18px;margin-top:4px}
+.angka.sorot{background:var(--navy);color:#fff;border-color:var(--navy)}
+.angka.sorot small{color:#c9cbe0}
+.daftar-nilai{display:grid}
+.daftar-nilai div{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px dashed var(--garis);font-size:14px}
+.daftar-nilai div:last-child{border-bottom:0;font-weight:700}
+.tabel-bungkus{overflow:auto}
+.tabel{width:100%;border-collapse:collapse;font-size:13.5px}
+.tabel th,.tabel td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--garis);white-space:nowrap}
+.tabel th{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--redup);background:#f7f8fb}
+.tabel .k{text-align:right}
+.tabel tfoot td{font-weight:800;border-bottom:0}
+
+/* atur */
+.daftar-atur{list-style:none;margin:0 0 10px;padding:0}
+.daftar-atur li{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--garis)}
+.daftar-atur li .dua{display:grid;grid-template-columns:1.3fr 1fr;gap:8px}
+.daftar-atur li .tiga{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:8px}
+
+/* dialog */
+dialog{border:0;border-radius:18px;padding:0;width:min(520px,calc(100% - 20px));box-shadow:0 20px 60px rgba(0,0,0,.25);color:var(--teks)}
+dialog::backdrop{background:rgba(20,22,40,.5)}
+#dlgIsi{padding:20px;display:grid;gap:12px;max-height:88vh;overflow:auto}
+#dlgIsi h3{font-size:17px;margin:0;color:var(--teks)}
+.teks-wa{white-space:pre-wrap;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace;background:var(--latar);padding:12px;border-radius:10px;max-height:52vh;overflow:auto;margin:0}
+.peringatan{background:#fff7e6;border:1px solid #f5c26b;color:#7a4a00;border-radius:10px;padding:10px 12px;font-size:14px}
+.peringatan ul{margin:6px 0 0;padding-left:18px}
+.dlg-aksi{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+
+/* navigasi bawah */
+.bawah{display:flex;position:fixed;bottom:0;left:0;right:0;background:var(--kartu);border-top:1px solid var(--garis);padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:25;justify-content:center}
+.nav{flex:1;max-width:160px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11.5px;padding:6px 2px;border:0;background:none;border-radius:10px;font-weight:600;color:var(--redup)}
+.nav.aktif{color:var(--utama);background:var(--utama-muda)}
+
+.toast{position:fixed;left:50%;bottom:90px;transform:translate(-50%,200px);background:var(--teks);color:#fff;padding:11px 18px;border-radius:12px;font-weight:600;transition:transform .25s;z-index:60;max-width:90%;text-align:center}
+.toast.tampil{transform:translate(-50%,0)}
+
+@media (max-width:640px){
+  .kartu-angka{grid-template-columns:repeat(2,1fr)}
+  .dua-kolom{grid-template-columns:1fr}
+  .daftar-atur li .tiga{grid-template-columns:1fr 1fr}
+  .daftar-atur li .tiga input:first-child{grid-column:1/-1}
+}
