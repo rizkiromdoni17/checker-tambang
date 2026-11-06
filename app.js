@@ -96,8 +96,6 @@
 
   function tampilMasuk() {
     $('#aplikasi').hidden = true; $('#layarMasuk').hidden = false;
-    $('#masukNama').textContent = 'Laporan Harian Checker';
-    $('#petunjukPin').hidden = !D.pengguna.some(function (u) { return (u.id === 'u1' && u.pin === '1234') || (u.id === 'u2' && u.pin === '1111'); });
     dipilih = dipilih && D.pengguna.find(function (u) { return u.id === dipilih.id; }) || D.pengguna[0];
     pinBuffer = '';
     $('#daftarPengguna').innerHTML = D.pengguna.map(function (u) { return '<button type="button" data-id="' + u.id + '">' + esc(u.nama) + '</button>'; }).join('');

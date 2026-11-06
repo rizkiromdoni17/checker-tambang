@@ -1,5 +1,5 @@
 /* Service worker: simpan semua berkas agar aplikasi jalan tanpa internet. */
-var CACHE = 'checker-tambang-v3';
+var CACHE = 'checker-tambang-v4';
 var BERKAS = ['./', './index.html', './style.css', './app.js', './manifest.webmanifest', './logo.png', './ikon-192.png', './ikon-512.png', './favicon.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', function (e) {
