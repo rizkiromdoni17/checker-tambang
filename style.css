@@ -109,7 +109,7 @@ main{max-width:860px;margin:0 auto;padding:16px 16px 100px}
 .kartu-angka{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
 .angka{background:var(--kartu);border:1px solid var(--garis);border-radius:var(--radius);padding:14px}
 .angka small{color:var(--redup);font-weight:600;font-size:12px}
-.angka b{display:block;font-size:18px;margin-top:4px}
+.angka b{display:block;font-size:clamp(14px,4.3vw,18px);margin-top:4px;white-space:nowrap}
 .angka.sorot{background:var(--navy);color:#fff;border-color:var(--navy)}
 .angka.sorot small{color:#c9cbe0}
 .daftar-nilai{display:grid}
@@ -172,3 +172,8 @@ dialog::backdrop{background:rgba(20,22,40,.5)}
 .komposisi .nil{text-align:right;white-space:nowrap}
 .komposisi .nil small{color:var(--redup);margin-left:4px}
 .kosong-grafik{color:var(--redup);font-size:13px;padding:10px 0}
+.segmen{display:inline-flex;background:var(--kartu);border:1px solid var(--garis);border-radius:10px;padding:3px;gap:2px}
+.segmen button{border:0;background:none;padding:7px 12px;border-radius:8px;font-weight:600;font-size:13.5px;color:var(--redup)}
+.segmen button.aktif{background:var(--navy);color:#fff}
+#hal-rekap .hal-kepala .aksi{flex-wrap:wrap}
+#periodeRekap{margin:-6px 0 12px}

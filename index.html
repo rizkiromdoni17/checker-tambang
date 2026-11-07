@@ -59,10 +59,15 @@
     <!-- REKAP -->
     <section class="hal" id="hal-rekap">
       <div class="hal-kepala">
-        <h2>Rekap Bulanan</h2>
-        <input type="month" id="bulanRekap" aria-label="Bulan">
+        <h2 id="judulRekap">Rekap Bulanan</h2>
+        <div class="aksi">
+          <div class="segmen" id="modeRekap"><button type="button" data-mode="bulan" class="aktif">Per bulan</button><button type="button" data-mode="semua">Keseluruhan</button></div>
+          <input type="month" id="bulanRekap" aria-label="Bulan">
+        </div>
       </div>
+      <p class="redup kecil" id="periodeRekap"></p>
       <div class="kartu-angka" id="kartuAngka"></div>
+      <div class="panel" id="panelPerBulan" hidden><h3>Ringkasan per bulan</h3><div class="tabel-bungkus"><table class="tabel" id="tabelPerBulan"></table></div></div>
       <div class="panel">
         <h3>Kirim ke spreadsheet keuangan</h3>
         <p class="redup kecil">Satu baris per laporan harian. "Salin" lalu tempel (paste) di Google Sheets/Excel, atau unduh CSV.</p>

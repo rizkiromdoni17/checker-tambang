@@ -576,9 +576,23 @@
       .sort(function (a, b) { return a.tanggal < b.tanggal ? -1 : a.tanggal > b.tanggal ? 1 : (a.dibuat < b.dibuat ? -1 : 1); });
   }
 
+  var modeRekap = 'bulan';
+  function laporanRekap() {
+    if (modeRekap === 'semua') return D.laporan.slice().sort(function (a, b) { return a.tanggal < b.tanggal ? -1 : a.tanggal > b.tanggal ? 1 : (a.dibuat < b.dibuat ? -1 : 1); });
+    return laporanBulan($('#bulanRekap').value || bulanIni());
+  }
   function renderRekap() {
     var bln = $('#bulanRekap'); if (!bln.value) bln.value = bulanIni();
-    var daftar = laporanBulan(bln.value);
+    var semua = modeRekap === 'semua';
+    $$('#modeRekap button').forEach(function (b) { b.classList.toggle('aktif', b.dataset.mode === modeRekap); });
+    bln.hidden = semua;
+    $('#judulRekap').textContent = semua ? 'Rekap Keseluruhan' : 'Rekap Bulanan';
+    var daftar = laporanRekap();
+    var labelKosong = semua ? 'semua periode' : fmtBulan(bln.value);
+    $('#periodeRekap').textContent = !daftar.length ? '' : semua
+      ? 'Periode ' + fmtTglPanjang(daftar[0].tanggal) + ' sampai ' + fmtTglPanjang(daftar[daftar.length - 1].tanggal) + ' · ' + daftar.length + ' laporan'
+      : fmtBulan(bln.value) + ' · ' + daftar.length + ' laporan';
+    renderPerBulan(semua ? daftar : []);
     var tot = { royalti: 0, rit: 0, jual: 0, keluar: 0, solar: 0, liter: 0, upah: 0, sewa: 0, makan: 0, transport: 0, lain: 0, jamAlat: 0 };
     var perProduk = {}, urutProduk = [];
     daftar.forEach(function (l) {
@@ -606,12 +620,32 @@
       return baris(esc(k) + ' (' + desimal(perProduk[k].qty) + ' ' + esc(perProduk[k].satuan) + ')', rp(perProduk[k].nilai));
     }).join('') + baris('Total penjualan', rp(tot.jual)) + '</div>';
     renderGrafik(daftar, tot);
-    if (!daftar.length) { $('#tabelRekap').innerHTML = '<tr><td class="kosong">Belum ada laporan di ' + esc(fmtBulan(bln.value)) + '.</td></tr>'; return; }
+    if (!daftar.length) { $('#tabelRekap').innerHTML = '<tr><td class="kosong">Belum ada laporan di ' + esc(labelKosong) + '.</td></tr>'; return; }
     $('#tabelRekap').innerHTML = '<thead><tr><th>Tanggal</th><th>Lokasi</th><th class="k">Rit</th><th class="k">Penjualan</th><th class="k">Operasional</th><th class="k">Royalti</th><th class="k">Nett</th></tr></thead><tbody>' +
       daftar.map(function (l) {
         var t = hitung(l);
         return '<tr><td>' + fmtTgl(l.tanggal) + '</td><td>' + esc(l.lokasi) + '</td><td class="k">' + (kosong(l.ritase) ? '-' : desimal(l.ritase)) + '</td><td class="k">' + ribu(t.jual) + '</td><td class="k">' + ribu(t.keluar) + '</td><td class="k">' + ribu(t.royalti) + '</td><td class="k ' + (t.nett < 0 ? 'merah' : '') + '">' + ribu(t.nett) + '</td></tr>';
       }).join('') + '</tbody><tfoot><tr><td colspan="2">Total</td><td class="k">' + desimal(tot.rit) + '</td><td class="k">' + ribu(tot.jual) + '</td><td class="k">' + ribu(tot.keluar) + '</td><td class="k">' + ribu(tot.royalti) + '</td><td class="k">' + ribu(nett) + '</td></tr></tfoot>';
+  }
+
+  function renderPerBulan(daftar) {
+    var panel = $('#panelPerBulan');
+    panel.hidden = !daftar.length;
+    if (!daftar.length) return;
+    var per = {}, urut = [];
+    daftar.forEach(function (l) {
+      var ym = l.tanggal.slice(0, 7), t = hitung(l);
+      if (!per[ym]) { per[ym] = { hari: {}, rit: 0, jual: 0, keluar: 0, royalti: 0 }; urut.push(ym); }
+      var p = per[ym]; if (t.qtyJual > 0) p.hari[l.tanggal] = 1; p.rit += t.qtyJual; p.jual += t.jual; p.keluar += t.keluar; p.royalti += t.royalti;
+    });
+    var T = { hari: 0, rit: 0, jual: 0, keluar: 0, royalti: 0 };
+    var sel = function (v, merah) { return '<td class="k' + (merah && v < 0 ? ' merah' : '') + '">' + ribu(v) + '</td>'; };
+    $('#tabelPerBulan').innerHTML = '<thead><tr><th>Bulan</th><th class="k">Hari jual</th><th class="k">Rit</th><th class="k">Penjualan</th><th class="k">Operasional</th><th class="k">Royalti</th><th class="k">Nett</th></tr></thead><tbody>' +
+      urut.map(function (ym) {
+        var p = per[ym], hari = Object.keys(p.hari).length, nett = p.jual - p.keluar - p.royalti;
+        T.hari += hari; T.rit += p.rit; T.jual += p.jual; T.keluar += p.keluar; T.royalti += p.royalti;
+        return '<tr><td>' + esc(fmtBulan(ym)) + '</td><td class="k">' + hari + '</td><td class="k">' + desimal(p.rit) + '</td>' + sel(p.jual) + sel(p.keluar) + sel(p.royalti) + sel(nett, true) + '</tr>';
+      }).join('') + '</tbody><tfoot><tr><td>Total</td><td class="k">' + T.hari + '</td><td class="k">' + desimal(T.rit) + '</td>' + sel(T.jual) + sel(T.keluar) + sel(T.royalti) + sel(T.jual - T.keluar - T.royalti, true) + '</tr></tfoot>';
   }
 
   // ================= Grafik (SVG, offline) =================
@@ -751,9 +785,9 @@
   }
 
   function ekspor(jenis) {
-    var ym = $('#bulanRekap').value || bulanIni();
-    var daftar = laporanBulan(ym);
-    if (!daftar.length) { toast('Belum ada laporan di bulan ini'); return; }
+    var ym = modeRekap === 'semua' ? 'semua' : ($('#bulanRekap').value || bulanIni());
+    var daftar = laporanRekap();
+    if (!daftar.length) { toast('Belum ada laporan untuk diekspor'); return; }
     if (jenis === 'tsv') {
       var tsv = tabelEkspor(daftar, false).map(function (r) {
         return r.map(function (v) { return String(v == null ? '' : v).replace(/[\t\r\n]+/g, ' '); }).join('\t');
@@ -954,6 +988,7 @@
     $('#bulanRiwayat').addEventListener('change', renderRiwayat);
     $('#daftarLaporan').addEventListener('click', onKlikRiwayat);
     $('#bulanRekap').addEventListener('change', renderRekap);
+    $('#modeRekap').addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) { modeRekap = b.dataset.mode; renderRekap(); } });
     var halRekap = $('#hal-rekap');
     halRekap.addEventListener('pointerover', function (e) { var k = e.target.closest('.kolom'); if (k && e.pointerType === 'mouse') tampilTip(k, e); });
     halRekap.addEventListener('pointerout', function (e) { var k = e.target.closest('.kolom'); if (k && e.pointerType === 'mouse' && !k.contains(e.relatedTarget)) sembunyiTip(); });
