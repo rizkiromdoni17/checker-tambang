@@ -75,6 +75,13 @@
           <button class="tombol" id="btnEksporCSV">Unduh CSV</button>
         </div>
       </div>
+      <div class="panel grafik-panel"><h3>Penjualan vs biaya per hari</h3>
+        <div class="legenda"><span><i style="background:var(--g1)"></i>Penjualan</span><span><i style="background:var(--g2)"></i>Biaya (operasional + royalti)</span></div>
+        <div class="grafik-gulir" id="grafikTren"></div></div>
+      <div class="panel grafik-panel"><h3>Nett per hari (setelah royalti)</h3>
+        <div class="legenda"><span><i style="background:var(--g1)"></i>Untung</span><span><i style="background:var(--g2)"></i>Rugi</span></div>
+        <div class="grafik-gulir" id="grafikNett"></div></div>
+      <div class="panel"><h3>Komposisi pengeluaran</h3><div id="grafikBiaya"></div></div>
       <div class="dua-kolom">
         <div class="panel"><h3>Pengeluaran per pos</h3><div id="rekapBiaya"></div></div>
         <div class="panel"><h3>Penjualan per produk</h3><div id="rekapJual"></div></div>
@@ -104,6 +111,7 @@
 
 <dialog id="dlg"><div id="dlgIsi"></div></dialog>
 <div id="toast" class="toast" role="status"></div>
+<div id="tipGrafik" class="tip-grafik" hidden></div>
 
 <script src="app.js"></script>
 </body>

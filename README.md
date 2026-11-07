@@ -12,6 +12,9 @@ Aplikasi untuk checker mengisi **Laporan Progres Harian** tambang pasir dari HP,
 - **Rekap bulanan**: total ritase, penjualan, pengeluaran per pos, penjualan per produk, selisih.
 - **Ke spreadsheet keuangan**: *Salin ke spreadsheet* (tempel di sel A1 Google Sheets/Excel) atau *Unduh CSV* (pilih `;` untuk Excel Indonesia, `,` untuk Google Sheets). Satu baris per laporan.
 - **Pengguna & PIN**: admin (kelola pengaturan, hapus laporan) dan checker (isi/ubah laporan).
+- **PIN Laporan**: menu Rekap (grafik, total, nett, ekspor) terkunci untuk checker. Checker hanya melihat laporan buatannya sendiri, tanpa royalti/nett. Admin mengatur PIN Laporan di menu Atur.
+- **Royalti otomatis** (rit terjual × tarif per rit) dan **grafik** penjualan vs biaya, nett harian, komposisi pengeluaran.
+- **Impor laporan (gabung)** dari file JSON tanpa mengubah PIN/pengguna/laporan lain.
 - **Backup/pulihkan JSON**.
 
 ## Cara menjalankan

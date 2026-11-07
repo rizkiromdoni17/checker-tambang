@@ -21,8 +21,11 @@
       ],
       produk: [
         { id: 'p1', nama: 'Pasir Ayak', harga: 1200000, satuan: 'rit' },
-        { id: 'p2', nama: 'Pasir Bahan', harga: 750000, satuan: 'rit' }
+        { id: 'p2', nama: 'Pasir Bahan', harga: 750000, satuan: 'rit' },
+        { id: 'p3', nama: 'Pasir Bahan Project', harga: 775000, satuan: 'rit' }
       ],
+      // royalti dibayar per rit terjual (Daftar Harga spreadsheet: Rp550.000/rit)
+      royalti: { tarif: 550000 },
       aktivitas: ['Pengayakan', 'Pengupasan', 'Penggalian', 'Pemuatan', 'Perataan', 'Perawatan alat'],
       cuaca: ['Cerah', 'Panas', 'Berawan', 'Mendung', 'Gerimis', 'Hujan', 'Hujan deras'],
       laporan: []
@@ -33,6 +36,10 @@
   function muat() {
     try { D = JSON.parse(localStorage.getItem(KUNCI)); } catch (e) { D = null; }
     if (!D || !Array.isArray(D.laporan)) { D = dataAwal(); simpan(); }
+    if (!D.royalti) { D.royalti = { tarif: 550000 }; simpan(); }
+    var ubah = false;
+    D.laporan.forEach(function (l) { if (l.royaltiTarif === undefined) { l.royaltiTarif = D.royalti.tarif; ubah = true; } });
+    if (ubah) simpan();
   }
   function simpan() {
     try { localStorage.setItem(KUNCI, JSON.stringify(D)); return true; }
@@ -93,6 +100,9 @@
   // ================= Sesi =================
   var pengguna = null, pinBuffer = '', dipilih = null;
   function isAdmin() { return pengguna && pengguna.peran === 'admin'; }
+  // Akses laporan keuangan (Rekap, royalti, nett, laporan orang lain): admin, atau yang sudah memasukkan PIN Laporan di sesi ini
+  var laporanTerbuka = false;
+  function bolehKeuangan() { return !pengguna || isAdmin() || laporanTerbuka; }
 
   function tampilMasuk() {
     $('#aplikasi').hidden = true; $('#layarMasuk').hidden = false;
@@ -119,25 +129,48 @@
     }
   }
   function masuk(u) {
-    pengguna = u; try { sessionStorage.setItem('checker-sesi', u.id); } catch (e) {}
+    pengguna = u; laporanTerbuka = false; try { sessionStorage.setItem('checker-sesi', u.id); } catch (e) {}
     $('#layarMasuk').hidden = true; $('#aplikasi').hidden = false;
     $('#namaPengguna').textContent = u.nama + (u.peran === 'admin' ? ' · admin' : '');
     $('#namaUsaha').textContent = D.profil.nama;
     $('[data-hal="atur"]').hidden = !isAdmin();
+    aturNavRekap();
     isiDatalist();
     muatDraf();
     buka('input');
   }
   function keluar() {
-    pengguna = null; try { sessionStorage.removeItem('checker-sesi'); } catch (e) {}
+    pengguna = null; laporanTerbuka = false; try { sessionStorage.removeItem('checker-sesi'); } catch (e) {}
     tampilMasuk();
   }
 
   // ================= Navigasi =================
   var halAktif = 'input';
+  function aturNavRekap() {
+    var s = $('[data-hal="rekap"] span'); if (s) s.textContent = bolehKeuangan() ? 'Rekap' : '🔒 Rekap';
+  }
+  function mintaPinLaporan() {
+    if (!D.pinLaporan) {
+      bukaDialog('<h3>Laporan keuangan terkunci</h3><p>Rekap hanya bisa dibuka oleh admin. PIN Laporan belum diatur — minta admin mengaturnya di menu Atur.</p><div class="dlg-aksi"><button class="tombol utama" data-tutup>Tutup</button></div>');
+      return;
+    }
+    bukaDialog('<h3>🔒 Masukkan PIN Laporan</h3><p class="redup kecil">Rekap berisi laporan keuangan. Hanya untuk pemilik/admin.</p>' +
+      '<label>PIN Laporan<input id="inPinLap" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></label>' +
+      '<div class="dlg-aksi"><button class="tombol" data-tutup>Batal</button><button class="tombol utama" id="btnPinLap">Buka</button></div>',
+      function (dlg) {
+        var cek = function () {
+          if ($('#inPinLap').value.trim() === D.pinLaporan) { laporanTerbuka = true; aturNavRekap(); dlg.close(); buka('rekap'); }
+          else { $('#inPinLap').value = ''; toast('PIN Laporan salah'); }
+        };
+        $('#btnPinLap').onclick = cek;
+        $('#inPinLap').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); cek(); } };
+        setTimeout(function () { $('#inPinLap').focus(); }, 50);
+      });
+  }
   function buka(hal) {
     if (hal === 'atur' && !isAdmin()) return;
-    halAktif = hal;
+    if (hal === 'rekap' && !bolehKeuangan()) { mintaPinLaporan(); return; }
+    halAktif = hal; sembunyiTip();
     $$('.hal').forEach(function (s) { s.classList.toggle('aktif', s.id === 'hal-' + hal); });
     $$('.nav').forEach(function (b) { b.classList.toggle('aktif', b.dataset.hal === hal); });
     ({ input: renderForm, riwayat: renderRiwayat, rekap: renderRekap, atur: renderAtur })[hal]();
@@ -163,6 +196,7 @@
       solar: '', solarLiter: '', upah: '', makan: '', transport: '',
       lain: [{ ket: '', nominal: '' }],
       jual: D.produk.map(function (p) { return { nama: p.nama, harga: p.harga, qty: '', satuan: p.satuan || 'rit' }; }),
+      royaltiTarif: D.royalti ? D.royalti.tarif : '',
       kendala: '', rencana: ''
     };
   }
@@ -173,7 +207,9 @@
     L.lain.forEach(function (x) { lain += n(x.nominal); });
     L.jual.forEach(function (j) { jual += n(j.harga) * n(j.qty); qty += n(j.qty); });
     var keluar = n(L.solar) + n(L.upah) + sewa + n(L.makan) + n(L.transport) + lain;
-    return { sewa: sewa, jamAlat: jam, lain: lain, keluar: keluar, jual: jual, qtyJual: qty, selisih: jual - keluar };
+    var royalti = Math.round(qty * n(L.royaltiTarif));
+    return { sewa: sewa, jamAlat: jam, lain: lain, keluar: keluar, jual: jual, qtyJual: qty, selisih: jual - keluar,
+      royalti: royalti, nett: jual - keluar - royalti };
   }
 
   function alatTerpakai(L) { return L.alat.filter(function (a) { return a.nama && (n(a.jam) > 0 || n(a.sewa) > 0); }); }
@@ -224,7 +260,12 @@
       s.push(huruf[i] + '. ' + j.nama + ' (harga/kuantiti) = ' + ribu(j.harga) + '/' + desimal(j.qty) + ' ' + sat + ' = ' + ribu(n(j.harga) * n(j.qty)));
     });
     s.push('', 'Total penjualan: ' + rp(t.jual));
-    s.push('Selisih (penjualan − pengeluaran): ' + (t.selisih < 0 ? '-' : '') + rp(Math.abs(t.selisih)), '');
+    if (bolehKeuangan()) s.push('Selisih sebelum royalti: ' + (t.selisih < 0 ? '-' : '') + rp(Math.abs(t.selisih)));
+    if (n(L.royaltiTarif) && bolehKeuangan()) {
+      s.push('Royalti: ' + desimal(t.qtyJual) + ' rit × ' + rp(L.royaltiTarif) + ' = ' + rp(t.royalti));
+      s.push('Nett setelah royalti: ' + (t.nett < 0 ? '-' : '') + rp(Math.abs(t.nett)));
+    }
+    s.push('');
     s.push('_5. Kendala_', '');
     s.push(L.kendala ? L.kendala : '-', '');
     s.push('_6. Rencana Besok_', '');
@@ -314,7 +355,8 @@
           '<div class="subtotal">Jumlah: <b data-subjual="' + i + '">' + rp(n(j.harga) * n(j.qty)) + '</b></div></div>';
       }).join('') +
       '<button type="button" class="tautan" data-tambah="jual">+ Tambah produk</button>' +
-      '<div class="total-baris"><span>Total penjualan</span><span id="totJual">Rp 0</span></div></div>';
+      '<div class="total-baris"><span>Total penjualan</span><span id="totJual">Rp 0</span></div>' +
+      '<div class="subtotal" id="infoRoyalti" style="margin-top:6px"></div></div>';
 
     h += '<div class="panel"><h3>5. Kendala</h3><textarea data-f="kendala" placeholder="kosongkan jika tidak ada">' + esc(L.kendala) + '</textarea></div>';
     h += '<div class="panel"><h3>6. Rencana Besok</h3><textarea data-f="rencana">' + esc(L.rencana) + '</textarea></div>';
@@ -328,16 +370,21 @@
     $('#totKeluar').textContent = rp(t.keluar);
     $('#totJual').textContent = rp(t.jual);
     $('#tampilSewa').value = ribu(t.sewa);
+    $('#infoRoyalti').hidden = !bolehKeuangan();
+    $('#infoRoyalti').innerHTML = n(F.royaltiTarif) ? 'Royalti otomatis: ' + desimal(t.qtyJual) + ' rit × ' + rp(F.royaltiTarif) + ' = <b>' + rp(t.royalti) + '</b>' : 'Royalti: tarif belum diatur (menu Atur)';
     var info = $('#infoRit');
     if (t.qtyJual && !kosong(F.ritase) && n(F.ritase) !== t.qtyJual) {
       info.innerHTML = '<span class="merah">Ritase (' + desimal(F.ritase) + ') berbeda dengan total kuantiti penjualan (' + desimal(t.qtyJual) + ').</span>';
     } else if (t.qtyJual && kosong(F.ritase)) {
       info.innerHTML = 'Total kuantiti penjualan: ' + desimal(t.qtyJual) + ' rit. <button type="button" class="tautan kecil" id="btnIsiRit">Pakai sebagai ritase</button>';
     } else info.textContent = '';
+    var penuh = bolehKeuangan();
+    $('#ringkasLengket').style.gridTemplateColumns = penuh ? '' : 'repeat(2,1fr)';
     $('#ringkasLengket').innerHTML =
       '<div><small>Pengeluaran</small><b>' + rp(t.keluar) + '</b></div>' +
-      '<div><small>Penjualan</small><b>' + rp(t.jual) + '</b></div>' +
-      '<div><small>Selisih</small><b class="' + (t.selisih < 0 ? 'merah' : '') + '" style="' + (t.selisih < 0 ? 'color:#ff9ea5' : '') + '">' + (t.selisih < 0 ? '-' : '') + rp(Math.abs(t.selisih)) + '</b></div>';
+      '<div><small>Penjualan</small><b>' + rp(t.jual) + '</b></div>' + (!penuh ? '' :
+      '<div><small>Royalti</small><b>' + rp(t.royalti) + '</b></div>' +
+      '<div><small>Nett</small><b style="' + (t.nett < 0 ? 'color:#ff9ea5' : '') + '">' + (t.nett < 0 ? '-' : '') + rp(Math.abs(t.nett)) + '</b></div>');
   }
 
   function formatUangInput(el) {
@@ -491,20 +538,22 @@
   // ================= Riwayat =================
   function renderRiwayat() {
     var bln = $('#bulanRiwayat'); if (!bln.value) bln.value = bulanIni();
-    var daftar = D.laporan.filter(function (l) { return l.tanggal.slice(0, 7) === bln.value; })
+    var penuh = bolehKeuangan();
+    var daftar = D.laporan.filter(function (l) { return l.tanggal.slice(0, 7) === bln.value && (penuh || l.oleh === pengguna.nama); })
       .sort(function (a, b) { return a.tanggal < b.tanggal ? 1 : a.tanggal > b.tanggal ? -1 : (a.dibuat < b.dibuat ? 1 : -1); });
-    if (!daftar.length) { $('#daftarLaporan').innerHTML = '<div class="kosong">Belum ada laporan di ' + esc(fmtBulan(bln.value)) + '.</div>'; return; }
-    $('#daftarLaporan').innerHTML = daftar.map(function (l) {
+    var catatan = penuh ? '' : '<p class="redup kecil">Menampilkan laporan yang kamu buat sendiri.</p>';
+    if (!daftar.length) { $('#daftarLaporan').innerHTML = catatan + '<div class="kosong">Belum ada laporan di ' + esc(fmtBulan(bln.value)) + '.</div>'; return; }
+    $('#daftarLaporan').innerHTML = catatan + daftar.map(function (l) {
       var t = hitung(l);
       return '<div class="lap"><div class="kepala"><b>' + esc(fmtTglPanjang(l.tanggal)) + '</b><span class="meta">📍 ' + esc(l.lokasi) + '</span></div>' +
         '<div class="meta">PIC: ' + esc(l.pic) + (l.cuaca ? ' · ' + esc(l.cuaca) : '') + ' · Ritase: ' + (kosong(l.ritase) ? '-' : desimal(l.ritase)) + '</div>' +
         '<div class="angka3"><div><span class="meta">Pengeluaran</span><b>' + rp(t.keluar) + '</b></div><div><span class="meta">Penjualan</span><b>' + rp(t.jual) + '</b></div>' +
-        '<div><span class="meta">Selisih</span><b class="' + (t.selisih < 0 ? 'merah' : 'hijau') + '">' + (t.selisih < 0 ? '-' : '') + rp(Math.abs(t.selisih)) + '</b></div></div>' +
+        (penuh ? '<div><span class="meta">Nett (stl royalti)</span><b class="' + (t.nett < 0 ? 'merah' : 'hijau') + '">' + (t.nett < 0 ? '-' : '') + rp(Math.abs(t.nett)) + '</b></div>' : '') + '</div>' +
         '<div class="aksi"><button class="tombol kecil" data-teks="' + l.id + '">Teks WA</button><button class="tombol kecil" data-ubah="' + l.id + '">Ubah</button>' +
         (isAdmin() ? '<button class="tombol kecil bahaya" data-hapus-lap="' + l.id + '">Hapus</button>' : '') + '</div></div>';
     }).join('');
   }
-  function cariLap(id) { return D.laporan.find(function (l) { return l.id === id; }); }
+  function cariLap(id) { return D.laporan.find(function (l) { return l.id === id && (bolehKeuangan() || l.oleh === pengguna.nama); }); }
   function onKlikRiwayat(e) {
     var b = e.target.closest('button'); if (!b) return;
     if (b.dataset.teks) tampilTeks(cariLap(b.dataset.teks));
@@ -530,37 +579,138 @@
   function renderRekap() {
     var bln = $('#bulanRekap'); if (!bln.value) bln.value = bulanIni();
     var daftar = laporanBulan(bln.value);
-    var tot = { rit: 0, jual: 0, keluar: 0, solar: 0, liter: 0, upah: 0, sewa: 0, makan: 0, transport: 0, lain: 0, jamAlat: 0 };
+    var tot = { royalti: 0, rit: 0, jual: 0, keluar: 0, solar: 0, liter: 0, upah: 0, sewa: 0, makan: 0, transport: 0, lain: 0, jamAlat: 0 };
     var perProduk = {}, urutProduk = [];
     daftar.forEach(function (l) {
       var t = hitung(l);
       tot.rit += n(l.ritase); tot.jual += t.jual; tot.keluar += t.keluar; tot.solar += n(l.solar); tot.liter += n(l.solarLiter);
-      tot.upah += n(l.upah); tot.sewa += t.sewa; tot.makan += n(l.makan); tot.transport += n(l.transport); tot.lain += t.lain; tot.jamAlat += t.jamAlat;
+      tot.upah += n(l.upah); tot.sewa += t.sewa; tot.makan += n(l.makan); tot.transport += n(l.transport); tot.lain += t.lain; tot.jamAlat += t.jamAlat; tot.royalti += t.royalti;
       l.jual.forEach(function (j) {
         if (!perProduk[j.nama]) { perProduk[j.nama] = { qty: 0, nilai: 0, satuan: j.satuan || 'rit' }; urutProduk.push(j.nama); }
         perProduk[j.nama].qty += n(j.qty); perProduk[j.nama].nilai += n(j.harga) * n(j.qty);
       });
     });
-    var selisih = tot.jual - tot.keluar;
+    var selisih = tot.jual - tot.keluar, nett = selisih - tot.royalti;
     $('#kartuAngka').innerHTML =
       '<div class="angka"><small>Laporan</small><b>' + daftar.length + '</b></div>' +
       '<div class="angka"><small>Total ritase</small><b>' + desimal(tot.rit) + ' rit</b></div>' +
       '<div class="angka"><small>Penjualan</small><b>' + rp(tot.jual) + '</b></div>' +
-      '<div class="angka sorot"><small>Selisih</small><b>' + (selisih < 0 ? '-' : '') + rp(Math.abs(selisih)) + '</b></div>';
+      '<div class="angka sorot"><small>Nett setelah royalti</small><b>' + (nett < 0 ? '-' : '') + rp(Math.abs(nett)) + '</b></div>';
     var baris = function (a, b) { return '<div><span>' + a + '</span><b>' + b + '</b></div>'; };
     $('#rekapBiaya').innerHTML = '<div class="daftar-nilai">' +
       baris('Solar/BBM' + (tot.liter ? ' (' + desimal(tot.liter) + ' L)' : ''), rp(tot.solar)) + baris('Upah', rp(tot.upah)) +
       baris('Sewa alat (' + desimal(tot.jamAlat) + ' jam)', rp(tot.sewa)) + baris('Makan & minum', rp(tot.makan)) +
-      baris('Transportasi', rp(tot.transport)) + baris('Lain-lain', rp(tot.lain)) + baris('Total pengeluaran', rp(tot.keluar)) + '</div>';
+      baris('Transportasi', rp(tot.transport)) + baris('Lain-lain', rp(tot.lain)) + baris('Total operasional', rp(tot.keluar)) +
+      baris('Royalti', rp(tot.royalti)) + baris('Total termasuk royalti', rp(tot.keluar + tot.royalti)) + '</div>';
     $('#rekapJual').innerHTML = '<div class="daftar-nilai">' + urutProduk.map(function (k) {
       return baris(esc(k) + ' (' + desimal(perProduk[k].qty) + ' ' + esc(perProduk[k].satuan) + ')', rp(perProduk[k].nilai));
     }).join('') + baris('Total penjualan', rp(tot.jual)) + '</div>';
+    renderGrafik(daftar, tot);
     if (!daftar.length) { $('#tabelRekap').innerHTML = '<tr><td class="kosong">Belum ada laporan di ' + esc(fmtBulan(bln.value)) + '.</td></tr>'; return; }
-    $('#tabelRekap').innerHTML = '<thead><tr><th>Tanggal</th><th>Lokasi</th><th class="k">Rit</th><th class="k">Penjualan</th><th class="k">Pengeluaran</th><th class="k">Selisih</th></tr></thead><tbody>' +
+    $('#tabelRekap').innerHTML = '<thead><tr><th>Tanggal</th><th>Lokasi</th><th class="k">Rit</th><th class="k">Penjualan</th><th class="k">Operasional</th><th class="k">Royalti</th><th class="k">Nett</th></tr></thead><tbody>' +
       daftar.map(function (l) {
         var t = hitung(l);
-        return '<tr><td>' + fmtTgl(l.tanggal) + '</td><td>' + esc(l.lokasi) + '</td><td class="k">' + (kosong(l.ritase) ? '-' : desimal(l.ritase)) + '</td><td class="k">' + ribu(t.jual) + '</td><td class="k">' + ribu(t.keluar) + '</td><td class="k ' + (t.selisih < 0 ? 'merah' : '') + '">' + ribu(t.selisih) + '</td></tr>';
-      }).join('') + '</tbody><tfoot><tr><td colspan="2">Total</td><td class="k">' + desimal(tot.rit) + '</td><td class="k">' + ribu(tot.jual) + '</td><td class="k">' + ribu(tot.keluar) + '</td><td class="k">' + ribu(selisih) + '</td></tr></tfoot>';
+        return '<tr><td>' + fmtTgl(l.tanggal) + '</td><td>' + esc(l.lokasi) + '</td><td class="k">' + (kosong(l.ritase) ? '-' : desimal(l.ritase)) + '</td><td class="k">' + ribu(t.jual) + '</td><td class="k">' + ribu(t.keluar) + '</td><td class="k">' + ribu(t.royalti) + '</td><td class="k ' + (t.nett < 0 ? 'merah' : '') + '">' + ribu(t.nett) + '</td></tr>';
+      }).join('') + '</tbody><tfoot><tr><td colspan="2">Total</td><td class="k">' + desimal(tot.rit) + '</td><td class="k">' + ribu(tot.jual) + '</td><td class="k">' + ribu(tot.keluar) + '</td><td class="k">' + ribu(tot.royalti) + '</td><td class="k">' + ribu(nett) + '</td></tr></tfoot>';
+  }
+
+  // ================= Grafik (SVG, offline) =================
+  function jt(x) {
+    var a = Math.abs(x), s = x < 0 ? '−' : '';
+    if (a >= 1e9) return s + (+(a / 1e9).toFixed(1)).toLocaleString('id-ID') + ' M';
+    if (a >= 1e6) return s + (+(a / 1e6).toFixed(a >= 1e7 ? 0 : 1)).toLocaleString('id-ID') + ' jt';
+    if (a >= 1e3) return s + Math.round(a / 1e3) + ' rb';
+    return s + Math.round(a);
+  }
+  function skala(maks) { // batas atas "bulat" untuk sumbu
+    if (maks <= 0) return 1;
+    var p = Math.pow(10, Math.floor(Math.log10(maks))), m = maks / p;
+    return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p;
+  }
+  function batangAtas(x, y, w, h) { // batang dengan ujung data membulat 4px, dasar rata
+    if (h <= 0) return '';
+    var r = Math.min(4, w / 2, h);
+    return 'M' + x + ',' + (y + h) + 'V' + (y + r) + 'Q' + x + ',' + y + ' ' + (x + r) + ',' + y + 'H' + (x + w - r) + 'Q' + (x + w) + ',' + y + ' ' + (x + w) + ',' + (y + r) + 'V' + (y + h) + 'Z';
+  }
+  function batangBawah(x, y, w, h) { // untuk nilai negatif: dasar di atas, ujung bulat di bawah
+    if (h <= 0) return '';
+    var r = Math.min(4, w / 2, h), b = y + h;
+    return 'M' + x + ',' + y + 'V' + (b - r) + 'Q' + x + ',' + b + ' ' + (x + r) + ',' + b + 'H' + (x + w - r) + 'Q' + (x + w) + ',' + b + ' ' + (x + w) + ',' + (b - r) + 'V' + y + 'Z';
+  }
+  var dataGrafik = {};
+  // seri: [{nama, warna}] ; baris: [{label, sub, nilai:[..], tip}]
+  function grafikKolom(id, baris, seri, diverging) {
+    var el = $('#' + id);
+    if (!baris.length) { el.innerHTML = '<div class="kosong-grafik">Belum ada data.</div>'; return; }
+    var H = 220, atas = 12, bawah = 34, kiri = 46, lebarKol = seri.length > 1 ? 40 : 30, jarak = 10;
+    var W = kiri + baris.length * (lebarKol + jarak) + 8;
+    var maks = 0, min = 0;
+    baris.forEach(function (b) { b.nilai.forEach(function (v) { maks = Math.max(maks, v); min = Math.min(min, v); }); });
+    var top = skala(maks), bot = diverging && min < 0 ? -skala(-min) : 0;
+    if (top === 1 && maks <= 0 && bot < 0) top = 0;
+    var tinggi = H - atas - bawah, y = function (v) { return atas + (top - v) / (top - bot || 1) * tinggi; };
+    var g = '';
+    var garis = diverging && bot < 0 ? [top, top / 2, 0, bot / 2, bot] : [top, top / 2, 0];
+    garis.forEach(function (v) {
+      g += '<line x1="' + kiri + '" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="' + (v === 0 ? '#c9ccd6' : '#eceef3') + '" stroke-width="1"/>' +
+        '<text x="' + (kiri - 6) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + jt(v) + '</text>';
+    });
+    var bw = seri.length > 1 ? (lebarKol - 2) / 2 : lebarKol;
+    baris.forEach(function (b, i) {
+      var x0 = kiri + 6 + i * (lebarKol + jarak);
+      var isi = '<rect class="sorot" x="' + (x0 - jarak / 2) + '" y="' + atas + '" width="' + (lebarKol + jarak) + '" height="' + tinggi + '" fill="transparent"/>';
+      b.nilai.forEach(function (v, k) {
+        var x = x0 + k * (bw + 2), warna = diverging ? (v < 0 ? seri[1].warna : seri[0].warna) : seri[k].warna;
+        isi += '<path d="' + (v >= 0 ? batangAtas(x, y(v), bw, y(0) - y(v)) : batangBawah(x, y(0), bw, y(v) - y(0))) + '" fill="' + warna + '"/>';
+      });
+      isi += '<text x="' + (x0 + lebarKol / 2) + '" y="' + (H - bawah + 15) + '" text-anchor="middle">' + esc(b.label) + '</text>';
+      if (b.sub) isi += '<text x="' + (x0 + lebarKol / 2) + '" y="' + (H - bawah + 28) + '" text-anchor="middle" style="font-size:10px">' + esc(b.sub) + '</text>';
+      g += '<g class="kolom" data-g="' + id + '" data-i="' + i + '">' + isi + '</g>';
+    });
+    dataGrafik[id] = baris;
+    el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" style="width:' + W + 'px;height:' + H + 'px" role="img" aria-label="grafik">' + g + '</svg>';
+  }
+  function tampilTip(kol, ev) {
+    var b = dataGrafik[kol.dataset.g][+kol.dataset.i], tip = $('#tipGrafik');
+    $$('.kolom.aktif').forEach(function (k) { k.classList.remove('aktif'); }); kol.classList.add('aktif');
+    tip.innerHTML = b.tip; tip.hidden = false;
+    var r = kol.getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
+    var x = Math.min(Math.max(8, r.left + r.width / 2 - tw / 2), window.innerWidth - tw - 8);
+    var yy = r.top + 10 - th; if (yy < 8) yy = r.bottom + 8;
+    tip.style.left = x + 'px'; tip.style.top = yy + 'px';
+  }
+  function sembunyiTip() { $('#tipGrafik').hidden = true; $$('.kolom.aktif').forEach(function (k) { k.classList.remove('aktif'); }); }
+
+  function renderGrafik(daftar, tot) {
+    var perTgl = {}, urut = [];
+    daftar.forEach(function (l) {
+      var t = hitung(l);
+      if (!perTgl[l.tanggal]) { perTgl[l.tanggal] = { jual: 0, keluar: 0, royalti: 0, rit: 0 }; urut.push(l.tanggal); }
+      var p = perTgl[l.tanggal]; p.jual += t.jual; p.keluar += t.keluar; p.royalti += t.royalti; p.rit += t.qtyJual;
+    });
+    var NAMA_HARI = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+    var warna = { a: '#3d4f9f', b: '#d91c28' };
+    var tipBaris = function (w, k, v) { return '<div><i style="background:' + w + '"></i>' + k + ': <b>' + v + '</b></div>'; };
+    var baris1 = [], baris2 = [];
+    urut.forEach(function (tg) {
+      var p = perTgl[tg], d = tg.split('-'), hari = NAMA_HARI[new Date(+d[0], +d[1] - 1, +d[2]).getDay()];
+      var biaya = p.keluar + p.royalti, nett = p.jual - biaya, judul = '<b>' + hari + ', ' + fmtTgl(tg) + '</b>';
+      baris1.push({ label: String(+d[2]), sub: hari, nilai: [p.jual, biaya],
+        tip: judul + tipBaris(warna.a, 'Penjualan', rp(p.jual)) + tipBaris(warna.b, 'Biaya', rp(biaya)) +
+          '<div style="opacity:.75">Operasional ' + rp(p.keluar) + ' · royalti ' + rp(p.royalti) + '</div>' });
+      baris2.push({ label: String(+d[2]), sub: hari, nilai: [nett],
+        tip: judul + tipBaris(nett < 0 ? warna.b : warna.a, nett < 0 ? 'Rugi' : 'Untung', (nett < 0 ? '−' : '') + rp(Math.abs(nett))) + '<div style="opacity:.75">' + desimal(p.rit) + ' rit terjual</div>' });
+    });
+    grafikKolom('grafikTren', baris1, [{ nama: 'Penjualan', warna: warna.a }, { nama: 'Biaya', warna: warna.b }], false);
+    grafikKolom('grafikNett', baris2, [{ nama: 'Untung', warna: warna.a }, { nama: 'Rugi', warna: warna.b }], true);
+    // komposisi pengeluaran
+    var pos = [['Royalti', tot.royalti], ['Solar/BBM', tot.solar], ['Sewa alat', tot.sewa], ['Upah', tot.upah], ['Makan & minum', tot.makan], ['Transportasi', tot.transport], ['Lain-lain', tot.lain]]
+      .filter(function (x) { return x[1] > 0; }).sort(function (a, b) { return b[1] - a[1]; });
+    var total = pos.reduce(function (s, x) { return s + x[1]; }, 0);
+    $('#grafikBiaya').innerHTML = !total ? '<div class="kosong-grafik">Belum ada data.</div>' : '<div class="komposisi">' + pos.map(function (x) {
+      var pr = x[1] / total * 100;
+      return '<div class="r"><span>' + x[0] + '</span><div><div class="bar" style="width:' + Math.max(pr, 0.5) + '%"></div></div><span class="nil">' + jt(x[1]) + '<small>' + pr.toLocaleString('id-ID', { maximumFractionDigits: 1 }) + '%</small></span></div>';
+    }).join('') + '</div>';
   }
 
   // Tabel datar untuk spreadsheet keuangan: satu baris per laporan.
@@ -578,7 +728,7 @@
     namaAlat.forEach(function (a) { kepala.push('Sewa ' + a + ' (Rp)'); });
     kepala.push('Sewa Alat (Rp)', 'Makan & Minum (Rp)', 'Transportasi (Rp)', 'Lain-lain (Rp)', 'Ket. Lain-lain', 'Total Pengeluaran (Rp)');
     namaProduk.forEach(function (p) { kepala.push('Qty ' + p, 'Harga ' + p + ' (Rp)', 'Penjualan ' + p + ' (Rp)'); });
-    kepala.push('Total Penjualan (Rp)', 'Selisih (Rp)', 'Kendala', 'Rencana Besok');
+    kepala.push('Total Penjualan (Rp)', 'Selisih sebelum Royalti (Rp)', 'Royalti (rit)', 'Tarif Royalti (Rp)', 'Royalti (Rp)', 'Nett setelah Royalti (Rp)', 'Kendala', 'Rencana Besok');
     var baris = daftar.map(function (l) {
       var t = hitung(l);
       var r = [l.tanggal, l.lokasi, l.pic, l.cuaca, l.kondisi, semuaAktivitas(l).join(', ')];
@@ -594,7 +744,7 @@
         var q = j.reduce(function (s, x) { return s + n(x.qty); }, 0), v = j.reduce(function (s, x) { return s + n(x.qty) * n(x.harga); }, 0);
         r.push(angka(q), angka(j[0].harga), angka(v));
       });
-      r.push(angka(t.jual), angka(t.selisih), l.kendala, l.rencana);
+      r.push(angka(t.jual), angka(t.selisih), angka(t.qtyJual), angka(l.royaltiTarif), angka(t.royalti), angka(t.nett), l.kendala, l.rencana);
       return r;
     });
     return [kepala].concat(baris);
@@ -627,6 +777,8 @@
       '<label>Lokasi/blok (satu per baris)<textarea id="atLokasi">' + esc(D.profil.lokasi.join('\n')) + '</textarea></label>' +
       '<label>Pilihan aktivitas (satu per baris)<textarea id="atAktivitas">' + esc(D.aktivitas.join('\n')) + '</textarea></label>' +
       '<label>Pilihan cuaca (satu per baris)<textarea id="atCuaca">' + esc(D.cuaca.join('\n')) + '</textarea></label>' +
+      '<label>PIN Laporan keuangan (4–6 angka) — untuk membuka Rekap selain admin<input id="atPinLap" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" placeholder="' + (D.pinLaporan ? '•••• (sudah diatur, isi untuk mengganti)' : 'belum diatur') + '"></label>' +
+      '<label>Tarif royalti per rit terjual (Rp)<input id="atRoyalti" class="uang" inputmode="numeric" value="' + nilaiUang(D.royalti.tarif) + '"></label>' +
       '</div></div>';
     h += '<div class="panel"><h3>Alat berat (nama · jenis · tarif sewa/jam)</h3><ul class="daftar-atur" id="atAlat">' +
       D.alat.map(function (a) { return barisAlat(a); }).join('') + '</ul><button type="button" class="tautan" id="tambahAlat">+ Tambah alat</button>' +
@@ -645,7 +797,9 @@
     h += '<div class="panel"><h3>Data</h3><div class="aksi wrap">' +
       '<button class="tombol" id="btnBackup">Backup JSON</button>' +
       '<label class="tombol" style="display:inline-flex;color:var(--teks)">Pulihkan JSON<input type="file" id="fileBackup" accept=".json,application/json" hidden></label>' +
+      '<label class="tombol" style="display:inline-flex;color:var(--teks)">Impor laporan (gabung)<input type="file" id="fileImpor" accept=".json,application/json" hidden></label>' +
       '<button class="tombol bahaya" id="btnReset">Hapus semua data</button></div>' +
+      '<p class="redup kecil">"Impor laporan (gabung)" menambah/memperbarui laporan dari file tanpa mengubah PIN, pengguna, dan laporan lain di HP ini.</p>' +
       '<p class="redup kecil">Semua data hanya tersimpan di HP/perangkat ini. Lakukan backup rutin (mis. seminggu sekali) dan simpan filenya di tempat lain.</p></div>';
     $('#isiAtur').innerHTML = h;
   }
@@ -660,10 +814,14 @@
   function baris(teks) { return teks.split('\n').map(function (x) { return x.trim(); }).filter(Boolean); }
 
   function simpanAtur() {
+    var pinLap = $('#atPinLap').value.trim();
+    if (pinLap && !/^\d{4,6}$/.test(pinLap)) { toast('PIN Laporan harus 4–6 angka'); return; }
     D.profil.nama = $('#atNama').value.trim() || 'Usaha Tambang';
     D.profil.lokasi = baris($('#atLokasi').value);
     D.aktivitas = baris($('#atAktivitas').value);
     D.cuaca = baris($('#atCuaca').value);
+    if (pinLap) D.pinLaporan = pinLap;
+    D.royalti = { tarif: parseUang($('#atRoyalti').value) };
     D.alat = $$('#atAlat li').map(function (li) {
       return { id: li.dataset.id, nama: $('[data-a="nama"]', li).value.trim(), jenis: $('[data-a="jenis"]', li).value.trim(), tarif: parseUang($('[data-a="tarif"]', li).value) };
     }).filter(function (a) { return a.nama; });
@@ -737,6 +895,36 @@
     r.readAsText(file);
   }
 
+  function imporGabung(file) {
+    var r = new FileReader();
+    r.onload = function () {
+      var x;
+      try { x = JSON.parse(r.result); if (!x || !Array.isArray(x.laporan)) throw new Error('format'); }
+      catch (e) { toast('File impor tidak valid'); return; }
+      var valid = x.laporan.filter(function (l) { return l && l.id && /^\d{4}-\d{2}-\d{2}$/.test(l.tanggal) && Array.isArray(l.alat) && Array.isArray(l.jual) && Array.isArray(l.lain); });
+      var baru = 0, ganti = 0;
+      valid.forEach(function (l) { if (D.laporan.some(function (y) { return y.id === l.id; })) ganti++; else baru++; });
+      var produkBaru = (x.produk || []).filter(function (p) { return p && p.nama && !D.produk.some(function (q) { return q.nama.toLowerCase() === p.nama.toLowerCase(); }); });
+      bukaDialog('<h3>Impor laporan?</h3><p>' + valid.length + ' laporan di file: <b>' + baru + ' baru</b>, <b>' + ganti + ' diperbarui</b> (laporan dengan kode sama).' +
+        (produkBaru.length ? ' Produk baru: ' + esc(produkBaru.map(function (p) { return p.nama; }).join(', ')) + '.' : '') +
+        '</p><p class="redup kecil">PIN, pengguna, dan laporan lain di HP ini tidak berubah.</p>' +
+        '<div class="dlg-aksi"><button class="tombol" data-tutup>Batal</button><button class="tombol utama" id="btnYaImpor">Impor</button></div>',
+        function (dlg) {
+          $('#btnYaImpor').onclick = function () {
+            valid.forEach(function (l) {
+              var i = D.laporan.findIndex(function (y) { return y.id === l.id; });
+              if (i >= 0) D.laporan[i] = l; else D.laporan.push(l);
+            });
+            produkBaru.forEach(function (p) { D.produk.push({ id: uid('p'), nama: p.nama, harga: p.harga, satuan: p.satuan || 'rit' }); });
+            if (x.royalti && x.royalti.tarif && !n(D.royalti.tarif)) D.royalti = { tarif: x.royalti.tarif };
+            simpan(); isiDatalist(); dlg.close(); renderAtur();
+            toast(valid.length + ' laporan diimpor');
+          };
+        });
+    };
+    r.readAsText(file);
+  }
+
   // ================= Mulai =================
   function mulai() {
     muat();
@@ -766,13 +954,22 @@
     $('#bulanRiwayat').addEventListener('change', renderRiwayat);
     $('#daftarLaporan').addEventListener('click', onKlikRiwayat);
     $('#bulanRekap').addEventListener('change', renderRekap);
+    var halRekap = $('#hal-rekap');
+    halRekap.addEventListener('pointerover', function (e) { var k = e.target.closest('.kolom'); if (k && e.pointerType === 'mouse') tampilTip(k, e); });
+    halRekap.addEventListener('pointerout', function (e) { var k = e.target.closest('.kolom'); if (k && e.pointerType === 'mouse' && !k.contains(e.relatedTarget)) sembunyiTip(); });
+    halRekap.addEventListener('click', function (e) { var k = e.target.closest('.kolom'); if (k) { e.stopPropagation(); tampilTip(k, e); } else sembunyiTip(); });
+    document.addEventListener('click', function (e) { if (!e.target.closest('.kolom')) sembunyiTip(); });
+    window.addEventListener('scroll', sembunyiTip, { passive: true });
     $('#btnSalinTSV').addEventListener('click', function () { ekspor('tsv'); });
     $('#btnEksporCSV').addEventListener('click', function () { ekspor('csv'); });
 
     var atur = $('#isiAtur');
     atur.addEventListener('click', onKlikAtur);
     atur.addEventListener('input', function (e) { if (e.target.classList.contains('uang')) formatUangInput(e.target); });
-    atur.addEventListener('change', function (e) { if (e.target.id === 'fileBackup' && e.target.files[0]) { pulihkan(e.target.files[0]); e.target.value = ''; } });
+    atur.addEventListener('change', function (e) {
+      if (e.target.id === 'fileBackup' && e.target.files[0]) { pulihkan(e.target.files[0]); e.target.value = ''; }
+      if (e.target.id === 'fileImpor' && e.target.files[0]) { imporGabung(e.target.files[0]); e.target.value = ''; }
+    });
 
     var sesi = null; try { sesi = sessionStorage.getItem('checker-sesi'); } catch (e) {}
     var u = sesi && D.pengguna.find(function (x) { return x.id === sesi; });

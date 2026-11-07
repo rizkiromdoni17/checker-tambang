@@ -5,6 +5,7 @@
   --navy:#2f3252; --utama-tua:var(--navy);
   --hijau:#15803d; --bahaya:#c81e1e;
   --latar:#f4f5f8; --kartu:#ffffff; --teks:#1d1f2b; --redup:#5f6375; --garis:#e2e4ec;
+  --g1:#3d4f9f; --g2:#d91c28;
   --radius:14px; --bayang:0 1px 2px rgba(0,0,0,.05),0 4px 14px rgba(0,0,0,.05);
   --font:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
 }
@@ -87,10 +88,10 @@ main{max-width:860px;margin:0 auto;padding:16px 16px 100px}
 .total-baris{display:flex;justify-content:space-between;padding:10px 0 0;border-top:1px solid var(--garis);margin-top:6px;font-weight:700}
 
 /* ringkas lengket */
-.ringkas-lengket{position:sticky;bottom:72px;z-index:10;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;background:var(--navy);color:#fff;border-radius:14px;padding:10px 12px;margin:6px 0 12px;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.ringkas-lengket{position:sticky;bottom:72px;z-index:10;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:var(--navy);color:#fff;border-radius:14px;padding:10px 12px;margin:6px 0 12px;box-shadow:0 8px 24px rgba(0,0,0,.18)}
 .ringkas-lengket div{min-width:0}
 .ringkas-lengket small{display:block;font-size:11px;opacity:.7}
-.ringkas-lengket b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.ringkas-lengket b{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
 .aksi-form{display:grid;grid-template-columns:1fr 1.4fr;gap:10px}
 .aksi-form .tombol{padding:14px;font-size:15px}
 
@@ -151,3 +152,23 @@ dialog::backdrop{background:rgba(20,22,40,.5)}
   .daftar-atur li .tiga{grid-template-columns:1fr 1fr}
   .daftar-atur li .tiga input:first-child{grid-column:1/-1}
 }
+
+/* grafik */
+.grafik-panel{position:relative}
+.legenda{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--redup);margin:-4px 0 8px}
+.legenda span{display:inline-flex;align-items:center;gap:6px}
+.legenda i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.grafik-gulir{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.grafik-gulir svg{display:block;max-width:none;stroke:none;fill:none}
+.grafik-gulir svg text{font:11px var(--font);fill:var(--redup)}
+.grafik-gulir .kolom{cursor:pointer}
+.grafik-gulir .kolom:hover .sorot,.grafik-gulir .kolom.aktif .sorot{fill:rgba(47,50,82,.07)}
+.tip-grafik{position:fixed;z-index:70;background:var(--teks);color:#fff;border-radius:10px;padding:8px 10px;font-size:12.5px;line-height:1.45;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:240px}
+.tip-grafik b{font-size:13px}
+.tip-grafik i{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:5px}
+.komposisi{display:grid;gap:8px}
+.komposisi .r{display:grid;grid-template-columns:110px 1fr auto;gap:10px;align-items:center;font-size:13px}
+.komposisi .bar{height:12px;border-radius:0 4px 4px 0;background:var(--g1);min-width:2px}
+.komposisi .nil{text-align:right;white-space:nowrap}
+.komposisi .nil small{color:var(--redup);margin-left:4px}
+.kosong-grafik{color:var(--redup);font-size:13px;padding:10px 0}
