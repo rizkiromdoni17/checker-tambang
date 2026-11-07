@@ -177,3 +177,7 @@ dialog::backdrop{background:rgba(20,22,40,.5)}
 .segmen button.aktif{background:var(--navy);color:#fff}
 #hal-rekap .hal-kepala .aksi{flex-wrap:wrap}
 #periodeRekap{margin:-6px 0 12px}
+.status-sinkron{border:1px solid #bfe3c9;background:#effaf2;color:#166534;border-radius:999px;padding:3px 9px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.status-sinkron.tunda{border-color:#f5c26b;background:#fff7e6;color:#7a4a00}
+.pengguna #namaPengguna{white-space:nowrap}
+@media (max-width:440px){ #namaUsaha{display:none} .atas{gap:8px} }

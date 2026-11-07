@@ -37,6 +37,8 @@
     try { D = JSON.parse(localStorage.getItem(KUNCI)); } catch (e) { D = null; }
     if (!D || !Array.isArray(D.laporan)) { D = dataAwal(); simpan(); }
     if (!D.royalti) { D.royalti = { tarif: 550000 }; simpan(); }
+    if (!D.sinkron) D.sinkron = { url: '', kodeKirim: '', kodeBaca: '', terakhirKirim: '', terakhirAmbil: '' };
+    if (!D.antrian) D.antrian = { kirim: [], hapus: [] };
     var ubah = false;
     D.laporan.forEach(function (l) { if (l.royaltiTarif === undefined) { l.royaltiTarif = D.royalti.tarif; ubah = true; } });
     if (ubah) simpan();
@@ -66,6 +68,7 @@
   function fmtTgl(iso) { var p = iso.split('-'); return (+p[2]) + '-' + (+p[1]) + '-' + p[0]; }
   function fmtTglPanjang(iso) { var p = iso.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); }
   function fmtBulan(ym) { var p = ym.split('-'); return new Date(+p[0], +p[1] - 1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }); }
+  function fmtWaktuPendek(iso) { var d = new Date(iso); return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }) + ' ' + dua(d.getHours()) + ':' + dua(d.getMinutes()); }
   function salinObj(o) { return JSON.parse(JSON.stringify(o)); }
   function gabungKata(arr) { arr = arr.filter(Boolean); if (arr.length <= 1) return arr.join(''); return arr.slice(0, -1).join(', ') + ' dan ' + arr[arr.length - 1]; }
   var tTimer;
@@ -138,6 +141,7 @@
     isiDatalist();
     muatDraf();
     buka('input');
+    kirimAntrian(false);
   }
   function keluar() {
     pengguna = null; laporanTerbuka = false; try { sessionStorage.removeItem('checker-sesi'); } catch (e) {}
@@ -171,6 +175,7 @@
     if (hal === 'atur' && !isAdmin()) return;
     if (hal === 'rekap' && !bolehKeuangan()) { mintaPinLaporan(); return; }
     halAktif = hal; sembunyiTip();
+    if (hal === 'rekap' && D.sinkron && D.sinkron.kodeBaca) ambilDariSheet(true);
     $$('.hal').forEach(function (s) { s.classList.toggle('aktif', s.id === 'hal-' + hal); });
     $$('.nav').forEach(function (b) { b.classList.toggle('aktif', b.dataset.hal === hal); });
     ({ input: renderForm, riwayat: renderRiwayat, rekap: renderRekap, atur: renderAtur })[hal]();
@@ -509,8 +514,10 @@
         L.id = uid('L'); L.dibuat = waktu; L.oleh = pengguna.nama;
         D.laporan.push(L);
       }
+      antreKirim(L.id);
       if (!simpan()) return;
       hapusDraf(); F = laporanBaru(); isiDatalist(); renderForm();
+      kirimAntrian(false);
       toast('Laporan tersimpan');
       tampilTeks(L, true);
     };
@@ -566,7 +573,7 @@
       var x = cariLap(b.dataset.hapusLap);
       bukaDialog('<h3>Hapus laporan?</h3><p>Laporan ' + esc(fmtTgl(x.tanggal)) + ' – ' + esc(x.lokasi) + ' akan dihapus permanen dari HP ini.</p>' +
         '<div class="dlg-aksi"><button class="tombol" data-tutup>Batal</button><button class="tombol utama" id="btnYaHapus" style="background:var(--bahaya);border-color:var(--bahaya)">Hapus</button></div>',
-        function (dlg) { $('#btnYaHapus').onclick = function () { D.laporan = D.laporan.filter(function (l) { return l.id !== x.id; }); simpan(); dlg.close(); renderRiwayat(); toast('Laporan dihapus'); }; });
+        function (dlg) { $('#btnYaHapus').onclick = function () { D.laporan = D.laporan.filter(function (l) { return l.id !== x.id; }); antreHapus(x.id); simpan(); dlg.close(); renderRiwayat(); toast('Laporan dihapus'); kirimAntrian(false); }; });
     }
   }
 
@@ -747,6 +754,95 @@
     }).join('') + '</div>';
   }
 
+  // ================= Sinkron Google Sheets =================
+  function siapSinkron() { return D.sinkron && D.sinkron.url && D.sinkron.kodeKirim; }
+  function antreKirim(id) { D.antrian.kirim = D.antrian.kirim.filter(function (x) { return x !== id; }); D.antrian.kirim.push(id); D.antrian.hapus = D.antrian.hapus.filter(function (x) { return x !== id; }); }
+  function antreHapus(id) { D.antrian.kirim = D.antrian.kirim.filter(function (x) { return x !== id; }); if (D.antrian.hapus.indexOf(id) < 0) D.antrian.hapus.push(id); }
+  function barisSheet(l) { // satu baris laporan untuk sheet "Laporan Checker"
+    var t = hitung(l), b = {};
+    b['Tanggal'] = l.tanggal; b['Lokasi/Blok'] = l.lokasi; b['PIC'] = l.pic; b['Cuaca'] = l.cuaca; b['Kondisi Area'] = l.kondisi;
+    b['Aktivitas'] = semuaAktivitas(l).join(', ');
+    D.alat.forEach(function (a) { b['Jam ' + a.nama] = ''; });
+    l.alat.forEach(function (a) { if (!a.nama) return; b['Jam ' + a.nama] = n(b['Jam ' + a.nama]) + n(a.jam); });
+    b['Total Jam Alat'] = t.jamAlat; b['Volume (m3)'] = l.volume; b['Ritase (rit)'] = l.ritase; b['Progres (%)'] = l.progres;
+    b['Solar/BBM (Rp)'] = n(l.solar); b['Solar (L)'] = l.solarLiter; b['Upah (Rp)'] = n(l.upah);
+    D.alat.forEach(function (a) { b['Sewa ' + a.nama + ' (Rp)'] = ''; });
+    l.alat.forEach(function (a) { if (!a.nama) return; b['Sewa ' + a.nama + ' (Rp)'] = n(b['Sewa ' + a.nama + ' (Rp)']) + n(a.sewa); });
+    b['Sewa Alat (Rp)'] = t.sewa; b['Makan & Minum (Rp)'] = n(l.makan); b['Transportasi (Rp)'] = n(l.transport);
+    b['Lain-lain (Rp)'] = t.lain; b['Ket. Lain-lain'] = l.lain.map(function (x) { return (x.ket || '-') + ' ' + ribu(x.nominal); }).join('; ');
+    b['Total Operasional (Rp)'] = t.keluar;
+    D.produk.forEach(function (p) { b['Qty ' + p.nama] = ''; b['Penjualan ' + p.nama + ' (Rp)'] = ''; });
+    l.jual.forEach(function (j) { if (!j.nama) return; b['Qty ' + j.nama] = n(b['Qty ' + j.nama]) + n(j.qty); b['Penjualan ' + j.nama + ' (Rp)'] = n(b['Penjualan ' + j.nama + ' (Rp)']) + n(j.qty) * n(j.harga); });
+    b['Total Penjualan (Rp)'] = t.jual; b['Rit Terjual'] = t.qtyJual; b['Royalti (Rp)'] = t.royalti; b['Nett setelah Royalti (Rp)'] = t.nett;
+    b['Kendala'] = l.kendala; b['Rencana Besok'] = l.rencana; b['Dibuat oleh'] = l.oleh || ''; b['Diubah'] = l.diubah ? fmtWaktuPendek(l.diubah) : '';
+    var w = new Date(); b['Terkirim'] = hariIni() + ' ' + dua(w.getHours()) + ':' + dua(w.getMinutes());
+    return b;
+  }
+  var sedangKirim = false;
+  function kirimAntrian(manual) {
+    tampilStatusSinkron();
+    if (!siapSinkron()) { if (manual) toast('Sinkron belum diatur (menu Atur)'); return Promise.resolve(false); }
+    if (sedangKirim) return Promise.resolve(false);
+    if (!D.antrian.kirim.length && !D.antrian.hapus.length) { if (manual) toast('Semua laporan sudah terkirim'); return Promise.resolve(true); }
+    if (navigator.onLine === false) { if (manual) toast('Tidak ada internet. Laporan akan dikirim otomatis saat online.'); return Promise.resolve(false); }
+    sedangKirim = true; tampilStatusSinkron();
+    var kirim = D.antrian.kirim.slice(0, 25), hapus = D.antrian.hapus.slice();
+    var muatan = { kode: D.sinkron.kodeKirim, laporan: [], hapus: hapus };
+    kirim.forEach(function (id) {
+      var l = D.laporan.find(function (x) { return x.id === id; });
+      if (l) muatan.laporan.push({ id: l.id, baris: barisSheet(l), data: l });
+    });
+    return fetch(D.sinkron.url, { method: 'POST', body: JSON.stringify(muatan), redirect: 'follow' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j.ok) throw new Error(j.error || 'gagal');
+        var ok = (j.diterima || []).concat(kirim.filter(function (id) { return !D.laporan.some(function (x) { return x.id === id; }); }));
+        D.antrian.kirim = D.antrian.kirim.filter(function (id) { return ok.indexOf(id) < 0; });
+        D.antrian.hapus = D.antrian.hapus.filter(function (id) { return (j.dihapus || []).indexOf(id) < 0; });
+        D.sinkron.terakhirKirim = new Date().toISOString(); simpan();
+        sedangKirim = false;
+        if (D.antrian.kirim.length) return kirimAntrian(manual);
+        if (manual) toast('Laporan terkirim ke spreadsheet');
+        tampilStatusSinkron(); return true;
+      })
+      .catch(function (e) {
+        sedangKirim = false; tampilStatusSinkron();
+        if (manual) toast('Gagal mengirim: ' + (String(e.message || e).indexOf('kode') >= 0 ? 'kode kirim salah' : 'periksa internet/URL'));
+        return false;
+      });
+  }
+  var terakhirAmbilMs = 0;
+  function ambilDariSheet(diam) {
+    if (!D.sinkron.url || !D.sinkron.kodeBaca) { if (!diam) toast('Kode baca belum diisi'); return Promise.resolve(false); }
+    if (diam && Date.now() - terakhirAmbilMs < 60000) return Promise.resolve(false);
+    if (navigator.onLine === false) { if (!diam) toast('Tidak ada internet'); return Promise.resolve(false); }
+    terakhirAmbilMs = Date.now();
+    var url = D.sinkron.url + (D.sinkron.url.indexOf('?') >= 0 ? '&' : '?') + 'kode=' + encodeURIComponent(D.sinkron.kodeBaca) + '&t=' + Date.now();
+    return fetch(url, { redirect: 'follow' }).then(function (r) { return r.json(); }).then(function (j) {
+      if (!j.ok) throw new Error(j.error || 'gagal');
+      var baru = 0, ganti = 0;
+      (j.laporan || []).forEach(function (l) {
+        if (!l || !l.id || !Array.isArray(l.jual) || !Array.isArray(l.alat) || !Array.isArray(l.lain)) return;
+        if (D.antrian.kirim.indexOf(l.id) >= 0 || D.antrian.hapus.indexOf(l.id) >= 0) return; // versi lokal belum terkirim: pertahankan
+        var i = D.laporan.findIndex(function (x) { return x.id === l.id; });
+        if (i >= 0) { if (JSON.stringify(D.laporan[i]) !== JSON.stringify(l)) { D.laporan[i] = l; ganti++; } } else { D.laporan.push(l); baru++; }
+      });
+      D.sinkron.terakhirAmbil = new Date().toISOString(); simpan(); isiDatalist();
+      if (halAktif === 'rekap') renderRekap();
+      if (halAktif === 'riwayat') renderRiwayat();
+      if (!diam || baru || ganti) toast('Data diperbarui: ' + baru + ' baru, ' + ganti + ' berubah');
+      return true;
+    }).catch(function (e) { if (!diam) toast('Gagal mengambil: ' + (String(e.message || e).indexOf('kode') >= 0 ? 'kode baca salah' : 'periksa internet/URL')); return false; });
+  }
+  function tampilStatusSinkron() {
+    var el = $('#statusSinkron'); if (!el) return;
+    if (!siapSinkron()) { el.hidden = true; return; }
+    el.hidden = false;
+    var n = D.antrian.kirim.length + D.antrian.hapus.length;
+    el.className = 'status-sinkron' + (n ? ' tunda' : '');
+    el.textContent = sedangKirim ? '⟳ Mengirim…' : n ? '⏳ ' + n + ' belum terkirim' : '✓ Terkirim';
+  }
+
   // Tabel datar untuk spreadsheet keuangan: satu baris per laporan.
   function tabelEkspor(daftar, desimalKoma) {
     var namaAlat = D.alat.map(function (a) { return a.nama; });
@@ -828,6 +924,18 @@
       '<div class="grid2"><input id="uNama" placeholder="Nama"><input id="uPin" placeholder="PIN 4 angka" inputmode="numeric" maxlength="4">' +
       '<select id="uPeran"><option value="checker">Checker</option><option value="admin">Admin</option></select><button class="tombol" id="btnTambahUser">Tambah pengguna</button></div>' +
       '<p class="redup kecil">Checker bisa mengisi &amp; mengubah laporan. Hanya admin yang bisa menghapus laporan dan membuka pengaturan.</p></div>';
+    var sk = D.sinkron;
+    h += '<div class="panel"><h3>Sinkron ke Google Sheets</h3><div class="isian">' +
+      '<label>URL Aplikasi Web (Apps Script)<input id="skUrl" value="' + esc(sk.url) + '" placeholder="https://script.google.com/macros/s/…/exec"></label>' +
+      '<label>Kode kirim (pasang di semua HP)<input id="skKirim" value="' + esc(sk.kodeKirim) + '" autocomplete="off"></label>' +
+      '<label>Kode baca (HANYA di HP admin — kosongkan di HP checker)<input id="skBaca" type="password" value="' + esc(sk.kodeBaca) + '" autocomplete="new-password"></label>' +
+      '</div><div class="aksi wrap" style="margin-top:12px"><button class="tombol utama" id="btnSkSimpan">Simpan &amp; tes koneksi</button>' +
+      '<button class="tombol" id="btnSkSemua">Kirim semua laporan di HP ini</button>' +
+      '<button class="tombol" id="btnSkAmbil">Ambil semua laporan dari spreadsheet</button></div>' +
+      '<p class="redup kecil">Antrean: ' + (D.antrian.kirim.length + D.antrian.hapus.length) + ' belum terkirim' +
+      (sk.terakhirKirim ? ' · terakhir kirim ' + esc(fmtWaktuPendek(sk.terakhirKirim)) : '') +
+      (sk.terakhirAmbil ? ' · terakhir ambil ' + esc(fmtWaktuPendek(sk.terakhirAmbil)) : '') +
+      '. Laporan baru otomatis terkirim saat ada internet. Laporan masuk ke sheet "Laporan Checker".</p></div>';
     h += '<div class="panel"><h3>Data</h3><div class="aksi wrap">' +
       '<button class="tombol" id="btnBackup">Backup JSON</button>' +
       '<label class="tombol" style="display:inline-flex;color:var(--teks)">Pulihkan JSON<input type="file" id="fileBackup" accept=".json,application/json" hidden></label>' +
@@ -899,6 +1007,31 @@
       if (target.peran === 'admin' && !sisaAdmin) { toast('Minimal harus ada satu admin'); return; }
       D.pengguna = D.pengguna.filter(function (x) { return x.id !== target.id; }); simpan(); renderAtur(); return;
     }
+    if (el.id === 'btnSkSimpan') {
+      var url = $('#skUrl').value.trim(), kk = $('#skKirim').value.trim(), kb = $('#skBaca').value.trim();
+      if (url && !/^https:\/\/script\.google(usercontent)?\.com\//.test(url)) { toast('URL harus dari script.google.com'); return; }
+      D.sinkron.url = url; D.sinkron.kodeKirim = kk; D.sinkron.kodeBaca = kb; simpan();
+      if (!url || !kk) { toast('Sinkron dimatikan'); tampilStatusSinkron(); renderAtur(); return; }
+      toast('Mengetes koneksi…');
+      fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'aksi=tes&kode=' + encodeURIComponent(kk), { redirect: 'follow' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (!j.ok) { toast('Kode kirim salah'); return; }
+          var cekBaca = kb ? fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'aksi=tes&kode=' + encodeURIComponent(kb), { redirect: 'follow' }).then(function (r) { return r.json(); }) : Promise.resolve(null);
+          return cekBaca.then(function (b) {
+            toast(b && !b.baca ? 'Terhubung, tapi kode baca salah' : 'Terhubung ke spreadsheet ✓');
+            kirimAntrian(false); renderAtur();
+          });
+        })
+        .catch(function () { toast('Gagal terhubung. Periksa URL dan internet.'); });
+      return;
+    }
+    if (el.id === 'btnSkSemua') {
+      if (!siapSinkron()) { toast('Isi URL dan kode kirim dulu'); return; }
+      D.laporan.forEach(function (l) { antreKirim(l.id); }); simpan();
+      kirimAntrian(true).then(function () { renderAtur(); }); return;
+    }
+    if (el.id === 'btnSkAmbil') { ambilDariSheet(false).then(function () { renderAtur(); }); return; }
     if (el.id === 'btnBackup') {
       unduh('backup-checker-tambang-' + hariIni() + '.json', JSON.stringify(D, null, 1), 'application/json'); return;
     }
@@ -1006,6 +1139,9 @@
       if (e.target.id === 'fileImpor' && e.target.files[0]) { imporGabung(e.target.files[0]); e.target.value = ''; }
     });
 
+    window.addEventListener('online', function () { kirimAntrian(false); });
+    setInterval(function () { if (pengguna && (D.antrian.kirim.length || D.antrian.hapus.length)) kirimAntrian(false); }, 60000);
+    $('#statusSinkron').addEventListener('click', function () { kirimAntrian(true); });
     var sesi = null; try { sesi = sessionStorage.getItem('checker-sesi'); } catch (e) {}
     var u = sesi && D.pengguna.find(function (x) { return x.id === sesi; });
     if (u) masuk(u); else tampilMasuk();
