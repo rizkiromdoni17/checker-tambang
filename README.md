@@ -36,6 +36,13 @@ Aplikasi untuk checker mengisi **Laporan Progres Harian** tambang pasir dari HP,
    - ganti PIN Admin & Iqbal, tambah checker lain.
 2. Lakukan **Backup JSON** rutin. Data hanya ada di HP itu; jika HP hilang/reset atau data browser dihapus, laporan ikut hilang.
 
+## Sinkron dua arah dengan Google Sheets
+Kode server ada di `apps-script/Code.gs` (proyek Apps Script "Sinkron Checker Tambang"). Isi `KODE_KIRIM` dan `KODE_BACA` di sana sebelum dipakai; jangan simpan kode asli di repo publik ini.
+- **Aplikasi → Sheet**: laporan yang disimpan di aplikasi dikirim ke tab *Laporan Checker*, lalu otomatis ditulis ke *Input Harian*, *Log Produksi*, *Log Alat & BBM* dan *Log Tenaga Kerja* (blok tanggal itu diganti, jadi tidak dobel). Ubah/hapus laporan di aplikasi ikut mengubah/menghapus blok tanggal itu.
+- **Sheet → Aplikasi**: saat HP admin membuka Rekap (atau tombol *Ambil dari spreadsheet*), setiap tanggal di *Input Harian* dicek. Jika angkanya berbeda dari laporan aplikasi atau tanggalnya belum ada, laporan dibuat ulang dari *Input Harian* (detail lapangan seperti lokasi/PIC tetap dipakai).
+- Peta alat: Kobelco → *Sewa Alat* → Alat Berat 1; CAT → *Sewa Alat 2* → Alat Berat 2 (atur di `PETA_ALAT`).
+- Setelah mengganti kode Apps Script: *Terapkan → Kelola penerapan → ✎ → Versi baru → Terapkan* (URL tetap).
+
 ## Kolom ekspor ke spreadsheet
 Tanggal, Lokasi/Blok, PIC, Cuaca, Kondisi Area, Aktivitas, Jam <tiap alat>, Total Jam Alat, Volume (m3), Ritase, Progres (%), Solar/BBM, Solar (L), Upah, Sewa <tiap alat>, Sewa Alat, Makan & Minum, Transportasi, Lain-lain, Ket. Lain-lain, Total Pengeluaran, Qty/Harga/Penjualan <tiap produk>, Total Penjualan, Selisih, Kendala, Rencana Besok.
 

@@ -820,7 +820,15 @@
     var url = D.sinkron.url + (D.sinkron.url.indexOf('?') >= 0 ? '&' : '?') + 'kode=' + encodeURIComponent(D.sinkron.kodeBaca) + '&t=' + Date.now();
     return fetch(url, { redirect: 'follow' }).then(function (r) { return r.json(); }).then(function (j) {
       if (!j.ok) throw new Error(j.error || 'gagal');
-      var baru = 0, ganti = 0;
+      var baru = 0, ganti = 0, buang = 0;
+      // Server mengirim daftar lengkap: laporan lokal yang sudah terkirim tapi tidak ada lagi di
+      // spreadsheet (mis. digabung/dibuat ulang dari Input Harian) dihapus agar tidak dobel.
+      if (j.lengkap) {
+        var adaDiServer = {};
+        (j.laporan || []).forEach(function (l) { if (l && l.id) adaDiServer[l.id] = 1; });
+        var sisa = D.laporan.filter(function (x) { return adaDiServer[x.id] || D.antrian.kirim.indexOf(x.id) >= 0; });
+        buang = D.laporan.length - sisa.length; D.laporan = sisa;
+      }
       (j.laporan || []).forEach(function (l) {
         if (!l || !l.id || !Array.isArray(l.jual) || !Array.isArray(l.alat) || !Array.isArray(l.lain)) return;
         if (D.antrian.kirim.indexOf(l.id) >= 0 || D.antrian.hapus.indexOf(l.id) >= 0) return; // versi lokal belum terkirim: pertahankan
@@ -830,7 +838,7 @@
       D.sinkron.terakhirAmbil = new Date().toISOString(); simpan(); isiDatalist();
       if (halAktif === 'rekap') renderRekap();
       if (halAktif === 'riwayat') renderRiwayat();
-      if (!diam || baru || ganti) toast('Data diperbarui: ' + baru + ' baru, ' + ganti + ' berubah');
+      if (!diam || baru || ganti || buang) toast('Data diperbarui: ' + baru + ' baru, ' + ganti + ' berubah' + (buang ? ', ' + buang + ' dihapus' : ''));
       return true;
     }).catch(function (e) { if (!diam) toast('Gagal mengambil: ' + (String(e.message || e).indexOf('kode') >= 0 ? 'kode baca salah' : 'periksa internet/URL')); return false; });
   }
