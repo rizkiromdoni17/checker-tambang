@@ -205,3 +205,8 @@ input[type=date]::-webkit-date-and-time-value,input[type=month]::-webkit-date-an
 .rit-detail summary{cursor:pointer;font-weight:600;color:var(--navy);padding:6px 0}
 .rit-catatan{font-size:12.5px;color:var(--redup);margin:4px 0 8px}
 @media (max-width:640px){ .rit-grid{grid-template-columns:repeat(2,1fr)} }
+.bagi-judul{font-size:14px;margin:14px 0 6px;color:var(--navy)}
+.bagi-tabel td{padding:7px 8px}
+.bagi-tabel .bagi-sisa td{border-top:2px solid var(--garis)}
+#panelBagi .dua{display:grid;grid-template-columns:1fr 150px;gap:8px;flex:1}
+@media (max-width:440px){ #panelBagi .dua{grid-template-columns:1fr 112px} }

@@ -40,6 +40,17 @@
     };
   }
 
+  // Bagi hasil per periode kuota ritase. Isi awal sesuai permintaan pemilik (gaji diasumsikan Rp5 jt per orang).
+  function bagiAwal() {
+    return {
+      mitra: [{ nama: 'Rizki', persen: 50 }, { nama: 'Iqbal', persen: 50 }],
+      periode: { '1': [
+        { ket: 'Gaji 3 orang @5 jt', nominal: 15000000 },
+        { ket: 'Administrasi Polda', nominal: 10000000 },
+        { ket: 'Pembuatan saung', nominal: 3000000 }
+      ] }
+    };
+  }
   var D;
   function muat() {
     try { D = JSON.parse(localStorage.getItem(KUNCI)); } catch (e) { D = null; }
@@ -48,6 +59,7 @@
     if (!D.sinkron) D.sinkron = { url: '', kodeKirim: '', kodeBaca: '', terakhirKirim: '', terakhirAmbil: '' };
     if (!D.antrian) D.antrian = { kirim: [], hapus: [] };
     if (D.kuotaRit === undefined) D.kuotaRit = 1000;
+    if (!D.bagiHasil) D.bagiHasil = bagiAwal();
     if (!D.server) D.server = { sejak: '', oleh: '', pengguna: [], tertunda: 0, terakhirTarikSheet: '' };
     var ubah = false;
     D.laporan.forEach(function (l) { if (l.royaltiTarif === undefined) { l.royaltiTarif = D.royalti.tarif; ubah = true; } });
@@ -140,7 +152,7 @@
     pengguna = null; tampilMasuk(); toast('Sesi berakhir, silakan masuk lagi');
   }
   function laporanValid(l) { return l && l.id && /^\d{4}-\d{2}-\d{2}$/.test(l.tanggal || '') && Array.isArray(l.jual) && Array.isArray(l.alat) && Array.isArray(l.lain); }
-  var KUNCI_ATUR = ['profil', 'alat', 'produk', 'aktivitas', 'cuaca', 'royalti', 'kuotaRit'];
+  var KUNCI_ATUR = ['profil', 'alat', 'produk', 'aktivitas', 'cuaca', 'royalti', 'kuotaRit', 'bagiHasil'];
   function kirimPengaturan() {
     var nilai = {}; KUNCI_ATUR.forEach(function (k) { nilai[k] = D[k]; });
     return api('/api/admin', { aksi: 'pengaturan', nilai: nilai }).then(function () { return true; })
@@ -179,7 +191,7 @@
       KUNCI_ATUR.forEach(function (k) {
         if (p[k] !== undefined && p[k] !== null && JSON.stringify(D[k]) !== JSON.stringify(p[k])) { D[k] = p[k]; aturBerubah = true; }
       });
-      if (isAdmin() && p.produk === undefined) kirimPengaturan(); // database baru: unggah pengaturan dari HP admin
+      if (isAdmin() && (p.produk === undefined || p.bagiHasil === undefined)) kirimPengaturan(); // database baru: unggah pengaturan dari HP admin
       if (j.daftarPengguna) D.server.pengguna = j.daftarPengguna;
       if (j.tertundaSheet !== undefined) D.server.tertunda = j.tertundaSheet;
       D.server.terakhirTarikSheet = p.terakhirTarikSheet || '';
@@ -734,6 +746,7 @@
       : fmtBulan(bln.value) + ' · ' + daftar.length + ' laporan';
     renderPerBulan(semua ? daftar : []);
     renderPerRit();
+    renderBagi();
     var tot = { royalti: 0, rit: 0, jual: 0, keluar: 0, solar: 0, liter: 0, upah: 0, sewa: 0, makan: 0, transport: 0, lain: 0, jamAlat: 0 };
     var perProduk = {}, urutProduk = [];
     daftar.forEach(function (l) {
@@ -845,6 +858,125 @@
         var lewat = kuota && kum > kuota && kum - p.rit < kuota;
         return '<tr' + (lewat ? ' style="background:#fff7e6"' : '') + '><td>' + fmtTgl(p.tanggal) + (lewat ? ' ⚑' : '') + '</td><td class="k">' + (p.rit ? ribu(p.rit) : '-') + '</td><td class="k">' + ribu(kum) + '</td><td class="k">' + per(p.jual) + '</td><td class="k">' + per(biaya) + '</td><td class="k' + (net < 0 ? ' merah' : '') + '">' + per(net) + '</td><td class="k' + (net < 0 ? ' merah' : '') + '">' + ribu(net) + '</td></tr>';
       }).join('') + '</tbody>' + (kuota ? '<tfoot><tr><td colspan="7" style="font-weight:400;font-size:12px;color:var(--redup)">⚑ = hari kuota ' + ribu(kuota) + ' rit terlampaui. Hari tanpa penjualan tetap ada biayanya.</td></tr></tfoot>' : '');
+  }
+
+  // ---------- Bagi hasil per periode ritase ----------
+  var periodeBagi = 0, bagiKotor = false;
+  function hitungRentang(a, b) {
+    var x = a > 0 ? hitungSampaiRit(a) : { jual: 0, ops: 0, royalti: 0, rit: 0 }, y = hitungSampaiRit(b);
+    var r = { jual: y.jual - x.jual, ops: y.ops - x.ops, royalti: y.royalti - x.royalti, rit: y.rit - x.rit, selesai: y.tercapai, akhir: y.tanggal };
+    var hari = dataHarianRit();
+    if (a > 0) { var m = hitungSampaiRit(a + 1); r.mulai = m.tercapai ? m.tanggal : ''; } else r.mulai = hari.length ? hari[0].tanggal : '';
+    r.keluar = r.ops + r.royalti; r.net = r.jual - r.keluar;
+    return r;
+  }
+  function infoPeriode() {
+    var kuota = n(D.kuotaRit), total = dataHarianRit().reduce(function (s, p) { return s + p.rit; }, 0);
+    var jml = kuota ? Math.floor(total / kuota) + 1 : 0;
+    return { kuota: kuota, total: total, jml: jml };
+  }
+  function bacaFormBagi() {
+    var pot = $$('#bagiPot li').map(function (li) { return { ket: $('[data-b="ket"]', li).value.trim(), nominal: parseUang($('[data-b="nominal"]', li).value) || 0 }; })
+      .filter(function (x) { return x.ket || x.nominal; });
+    var mitra = $$('#bagiMitra li').map(function (li) { return { nama: $('[data-b="nama"]', li).value.trim(), persen: n($('[data-b="persen"]', li).value.replace(',', '.')) }; })
+      .filter(function (x) { return x.nama || x.persen; });
+    return { pot: pot, mitra: mitra };
+  }
+  function hitungBagi(r, pot, mitra) {
+    var totPot = pot.reduce(function (s, x) { return s + n(x.nominal); }, 0), sisa = r.net - totPot;
+    var totPersen = mitra.reduce(function (s, m) { return s + n(m.persen); }, 0);
+    return { totPot: totPot, sisa: sisa, totPersen: totPersen, bagian: mitra.map(function (m) { return { nama: m.nama, persen: n(m.persen), nilai: sisa * n(m.persen) / 100 }; }) };
+  }
+  function labelPeriode(k, kuota) { return 'Periode ' + k + ' (rit ' + ribu((k - 1) * kuota + 1) + '–' + ribu(k * kuota) + ')'; }
+  function renderBagi(paksa) {
+    var panel = $('#panelBagi'); if (!panel) return;
+    if (bagiKotor && !paksa) return; // jangan hapus isian yang belum disimpan
+    var P = infoPeriode();
+    panel.hidden = !P.kuota || !P.total;
+    if (panel.hidden) return;
+    if (!periodeBagi || periodeBagi > P.jml) periodeBagi = Math.max(1, Math.floor(P.total / P.kuota)) || 1;
+    var k = periodeBagi, a = (k - 1) * P.kuota, b = k * P.kuota, r = hitungRentang(a, b);
+    var B = D.bagiHasil || bagiAwal(), pot = B.periode[k] || [], ubah = isAdmin() || !ONLINE;
+    $('#bagiPeriode').innerHTML = Array.from({ length: P.jml }, function (_, i) {
+      var selesai = P.total >= (i + 1) * P.kuota;
+      return '<button type="button" class="chip' + (i + 1 === k ? ' aktif' : '') + '" data-periode="' + (i + 1) + '">Periode ' + (i + 1) + (selesai ? ' ✓' : ' · berjalan') + '</button>';
+    }).join('');
+    var info = '<b>' + labelPeriode(k, P.kuota) + '</b>' + (r.mulai ? ' · ' + fmtTglPanjang(r.mulai) + (r.akhir && r.selesai ? ' – ' + fmtTglPanjang(r.akhir) : ' – sekarang') : '') +
+      (r.selesai ? ' · selesai' : '<br>Berjalan: <b>' + ribu(r.rit) + '</b> dari ' + ribu(P.kuota) + ' rit, sisa <b>' + ribu(P.kuota - r.rit) + ' rit</b>. Angka di bawah sementara.');
+    var kartu = function (judul, nilai, sorot) { return '<div class="angka' + (sorot ? ' sorot' : '') + '"><small>' + judul + '</small><b>' + nilai + '</b></div>'; };
+    var tanda = function (v) { return (v < 0 ? '−' : '') + rp(Math.abs(v)); };
+    var dis = ubah ? '' : ' disabled';
+    var h = '<div class="rit-info">' + info + '</div><div class="rit-grid">' +
+      kartu('Omset', rp(r.jual)) + kartu('Operasional', rp(r.ops)) + kartu('Royalti', rp(r.royalti)) + kartu('Net periode', tanda(r.net), true) + '</div>' +
+      '<h4 class="bagi-judul">Potongan dari net periode ini</h4><ul class="daftar-atur" id="bagiPot">' + pot.map(function (x) { return barisPot(x, dis); }).join('') + '</ul>' +
+      (ubah ? '<button type="button" class="tautan" id="bagiTambahPot">+ Tambah potongan</button>' : '') +
+      '<h4 class="bagi-judul">Pembagian sisa (berlaku untuk semua periode)</h4><ul class="daftar-atur" id="bagiMitra">' + B.mitra.map(function (m) { return barisMitra(m, dis); }).join('') + '</ul>' +
+      (ubah ? '<button type="button" class="tautan" id="bagiTambahMitra">+ Tambah orang</button>' : '') +
+      '<div id="bagiHasil"></div>' +
+      '<div class="aksi wrap" style="margin-top:10px">' + (ubah ? '<button class="tombol utama" id="bagiSimpan">Simpan potongan &amp; pembagian</button>' : '') +
+      '<button class="tombol" id="bagiSalin">Salin teks laporan</button></div>';
+    $('#bagiIsi').innerHTML = h;
+    renderHasilBagi();
+  }
+  function barisPot(x, dis) {
+    return '<li><div class="dua"><input data-b="ket" value="' + esc(x.ket || '') + '" placeholder="Keterangan, mis. Gaji"' + dis + '><input data-b="nominal" class="uang" inputmode="numeric" value="' + nilaiUang(x.nominal) + '" placeholder="Rp"' + dis + '></div>' +
+      (dis ? '' : '<button type="button" class="btn-hapus" data-hapus-bagi>×</button>') + '</li>';
+  }
+  function barisMitra(m, dis) {
+    return '<li><div class="dua"><input data-b="nama" value="' + esc(m.nama || '') + '" placeholder="Nama"' + dis + '><input data-b="persen" inputmode="decimal" value="' + (kosong(m.persen) ? '' : String(m.persen).replace('.', ',')) + '" placeholder="%"' + dis + '></div>' +
+      (dis ? '' : '<button type="button" class="btn-hapus" data-hapus-bagi>×</button>') + '</li>';
+  }
+  function dataBagiSaatIni() {
+    var P = infoPeriode(), k = periodeBagi, r = hitungRentang((k - 1) * P.kuota, k * P.kuota), f = bacaFormBagi();
+    return { P: P, k: k, r: r, pot: f.pot, mitra: f.mitra, x: hitungBagi(r, f.pot, f.mitra) };
+  }
+  function renderHasilBagi() {
+    var d = dataBagiSaatIni(), x = d.x, tanda = function (v) { return (v < 0 ? '−' : '') + rp(Math.abs(v)); };
+    var baris = function (a, b, kelas) { return '<tr' + (kelas ? ' class="' + kelas + '"' : '') + '><td>' + a + '</td><td class="k">' + b + '</td></tr>'; };
+    var h = '<table class="tabel bagi-tabel"><tbody>' + baris('Net periode (setelah royalti)', tanda(d.r.net)) +
+      d.pot.map(function (p) { return baris('− ' + esc(p.ket || 'Potongan'), rp(p.nominal)); }).join('') +
+      baris('<b>Sisa untuk dibagi</b>', '<b>' + tanda(x.sisa) + '</b>', 'bagi-sisa') +
+      x.bagian.map(function (m) { return baris(esc(m.nama || '-') + ' (' + desimal(m.persen) + '%)', '<b>' + tanda(m.nilai) + '</b>'); }).join('') + '</tbody></table>';
+    if (Math.abs(x.totPersen - 100) > 0.001) h += '<div class="peringatan" style="margin-top:8px">Total persen ' + desimal(x.totPersen) + '%, seharusnya 100%.</div>';
+    if (x.sisa < 0) h += '<div class="peringatan" style="margin-top:8px">Potongan lebih besar dari net periode ini.</div>';
+    if (!d.r.selesai) h += '<p class="rit-catatan">Periode belum mencapai ' + ribu(d.P.kuota) + ' rit, jadi angka bisa berubah.</p>';
+    $('#bagiHasil').innerHTML = h;
+  }
+  function teksBagi() {
+    var d = dataBagiSaatIni(), x = d.x, r = d.r;
+    var t = ['*Laporan Bagi Hasil ' + D.profil.nama + '*', labelPeriode(d.k, d.P.kuota) + (r.selesai ? '' : ' — BERJALAN, ' + ribu(r.rit) + ' rit'),
+      (r.mulai ? fmtTglPanjang(r.mulai) + ' – ' + (r.selesai ? fmtTglPanjang(r.akhir) : 'sekarang') : ''), '',
+      'Omset: ' + rp(r.jual), 'Operasional: ' + rp(r.ops), 'Royalti: ' + rp(r.royalti), '*Net periode: ' + rp(r.net) + '*', ''];
+    if (d.pot.length) { t.push('Potongan:'); d.pot.forEach(function (p) { t.push('- ' + (p.ket || 'Potongan') + ': ' + rp(p.nominal)); }); t.push('Total potongan: ' + rp(x.totPot), ''); }
+    t.push('*Sisa dibagi: ' + rp(x.sisa) + '*');
+    x.bagian.forEach(function (m) { t.push('- ' + m.nama + ' (' + desimal(m.persen) + '%): ' + rp(m.nilai)); });
+    return t.join('\n');
+  }
+  function simpanBagi() {
+    var f = bacaFormBagi();
+    if (f.mitra.some(function (m) { return !m.nama; })) { toast('Isi nama setiap orang'); return; }
+    var B = D.bagiHasil || bagiAwal();
+    B.mitra = f.mitra; B.periode[periodeBagi] = f.pot; D.bagiHasil = B;
+    simpan(); bagiKotor = false;
+    if (ONLINE) kirimPengaturan().then(function (ok) { if (ok) toast('Bagi hasil disimpan untuk semua HP admin'); });
+    else toast('Bagi hasil disimpan');
+    renderBagi(true);
+  }
+  function onBagi(e) {
+    var el = e.target;
+    var pb = el.closest('[data-periode]');
+    if (pb) {
+      var pindah = function () { periodeBagi = +pb.dataset.periode; bagiKotor = false; renderBagi(true); };
+      if (bagiKotor) bukaDialog('<h3>Perubahan belum disimpan</h3><p>Pindah periode akan membuang perubahan potongan/pembagian.</p><div class="dlg-aksi"><button class="tombol" data-tutup>Batal</button><button class="tombol utama" id="btnBuangBagi">Pindah</button></div>',
+        function (dlg) { $('#btnBuangBagi').onclick = function () { dlg.close(); pindah(); }; });
+      else pindah();
+      return;
+    }
+    if (el.id === 'bagiTambahPot') { $('#bagiPot').insertAdjacentHTML('beforeend', barisPot({ ket: '', nominal: '' }, '')); bagiKotor = true; return; }
+    if (el.id === 'bagiTambahMitra') { $('#bagiMitra').insertAdjacentHTML('beforeend', barisMitra({ nama: '', persen: '' }, '')); bagiKotor = true; return; }
+    if (el.hasAttribute('data-hapus-bagi')) { el.closest('li').remove(); bagiKotor = true; renderHasilBagi(); return; }
+    if (el.id === 'bagiSimpan') { simpanBagi(); return; }
+    if (el.id === 'bagiSalin') { salinTeks(teksBagi()).then(function (ok) { toast(ok ? 'Teks laporan bagi hasil disalin' : 'Gagal menyalin'); }); }
   }
 
   function renderPerBulan(daftar) {
@@ -1429,6 +1561,9 @@
     $('#ritTarget').addEventListener('input', function () { renderPerRit(); });
     $('#ritSlider').addEventListener('input', function (e) { $('#ritTarget').value = e.target.value; renderPerRit(); });
     $('#ritCepat').addEventListener('click', function (e) { var b = e.target.closest('[data-rit]'); if (b) { $('#ritTarget').value = b.dataset.rit; renderPerRit(); } });
+    var pBagi = $('#panelBagi');
+    pBagi.addEventListener('click', onBagi);
+    pBagi.addEventListener('input', function (e) { if (e.target.classList.contains('uang')) formatUangInput(e.target); bagiKotor = true; renderHasilBagi(); });
     $('#modeRekap').addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) { modeRekap = b.dataset.mode; renderRekap(); } });
     var halRekap = $('#hal-rekap');
     halRekap.addEventListener('pointerover', function (e) { var k = e.target.closest('.kolom'); if (k && e.pointerType === 'mouse') tampilTip(k, e); });
@@ -1476,7 +1611,7 @@
 
   // untuk pengujian di luar browser
   if (typeof window.__CT_TEST__ !== 'undefined') {
-    window.__CT_TEST__ = { hitungSampaiRit: hitungSampaiRit, teksWA: teksWA, hitung: hitung, tabelEkspor: tabelEkspor, setD: function (x) { D = x; }, dataAwal: dataAwal };
+    window.__CT_TEST__ = { hitungRentang: hitungRentang, hitungBagi: hitungBagi, bagiAwal: bagiAwal, hitungSampaiRit: hitungSampaiRit, teksWA: teksWA, hitung: hitung, tabelEkspor: tabelEkspor, setD: function (x) { D = x; }, dataAwal: dataAwal };
     return;
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mulai); else mulai();
