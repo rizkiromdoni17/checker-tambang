@@ -1,12 +1,18 @@
 // GET  /api/masuk  -> daftar nama pengguna untuk layar masuk
 // POST /api/masuk  {id, pin} -> {token, pengguna}
 // POST /api/masuk  {keluar: true} (dengan Authorization) -> hapus sesi
-import { api, sql, balas, bodyJson, galat, hashPin, tokenBaru, pastikanAdminAwal } from './_lib.js';
+import { api, sql, balas, bodyJson, galat, hashPin, tokenBaru, pastikanAdminAwal, tarikDariSheet } from './_lib.js';
 
 export default api(async (req, res) => {
   const q = sql();
   await pastikanAdminAwal();
   if (req.method === 'GET') {
+    // Database baru: isi sekali dari spreadsheet supaya data lama langsung tersedia
+    const [{ n }] = await q`SELECT count(*)::int AS n FROM laporan`;
+    const sudah = await q`SELECT 1 FROM pengaturan WHERE kunci = 'terakhirTarikSheet'`;
+    if (!n && !sudah.length && process.env.SHEET_KODE_BACA) {
+      try { await tarikDariSheet(); } catch (e) { console.error('isi awal', e.message); }
+    }
     const daftar = await q`SELECT id, nama, peran FROM pengguna ORDER BY (peran = 'admin') DESC, nama`;
     return balas(res, 200, { ok: true, pengguna: daftar });
   }
