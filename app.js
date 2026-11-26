@@ -47,9 +47,18 @@
       periode: { '1': [
         { ket: 'Gaji 3 orang @5 jt', nominal: 15000000 },
         { ket: 'Administrasi Polda', nominal: 10000000 },
-        { ket: 'Pembuatan saung', nominal: 3000000 }
-      ] }
+        { ket: 'Pembuatan saung', nominal: 3000000 },
+        { ket: 'Pembuatan ayakan', nominal: 50000000 }
+      ] },
+      v: 2
     };
+  }
+  // Tambahan permintaan pemilik: biaya pembuatan ayakan Rp50 jt masuk potongan Periode 1 (sekali saja).
+  function migrasiBagi() {
+    var B = D.bagiHasil; if (!B || B.v >= 2) return false;
+    var p1 = B.periode['1'] = B.periode['1'] || [];
+    if (!p1.some(function (x) { return /ayakan/i.test(x.ket || ''); })) p1.push({ ket: 'Pembuatan ayakan', nominal: 50000000 });
+    B.v = 2; return true;
   }
   var D;
   function muat() {
@@ -60,6 +69,7 @@
     if (!D.antrian) D.antrian = { kirim: [], hapus: [] };
     if (D.kuotaRit === undefined) D.kuotaRit = 1000;
     if (!D.bagiHasil) D.bagiHasil = bagiAwal();
+    if (migrasiBagi()) simpan();
     if (!D.server) D.server = { sejak: '', oleh: '', pengguna: [], tertunda: 0, terakhirTarikSheet: '' };
     var ubah = false;
     D.laporan.forEach(function (l) { if (l.royaltiTarif === undefined) { l.royaltiTarif = D.royalti.tarif; ubah = true; } });
@@ -191,7 +201,8 @@
       KUNCI_ATUR.forEach(function (k) {
         if (p[k] !== undefined && p[k] !== null && JSON.stringify(D[k]) !== JSON.stringify(p[k])) { D[k] = p[k]; aturBerubah = true; }
       });
-      if (isAdmin() && (p.produk === undefined || p.bagiHasil === undefined)) kirimPengaturan(); // database baru: unggah pengaturan dari HP admin
+      if (isAdmin() && migrasiBagi()) { aturBerubah = true; kirimPengaturan(); }
+      else if (isAdmin() && (p.produk === undefined || p.bagiHasil === undefined)) kirimPengaturan(); // database baru: unggah pengaturan dari HP admin
       if (j.daftarPengguna) D.server.pengguna = j.daftarPengguna;
       if (j.tertundaSheet !== undefined) D.server.tertunda = j.tertundaSheet;
       D.server.terakhirTarikSheet = p.terakhirTarikSheet || '';
