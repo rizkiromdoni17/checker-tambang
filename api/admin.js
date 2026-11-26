@@ -7,7 +7,7 @@
 //        'kirimSheet'     -> kirim ulang laporan yang tertunda ke spreadsheet
 import { api, sql, balas, bodyJson, galat, wajibAdmin, hashPin, garamBaru, idBaru, pinValid, tarikDariSheet, teruskanKeSheet } from './_lib.js';
 
-const KUNCI_PENGATURAN = ['profil', 'alat', 'produk', 'aktivitas', 'cuaca', 'royalti', 'kuotaRit'];
+const KUNCI_PENGATURAN = ['profil', 'alat', 'produk', 'aktivitas', 'cuaca', 'royalti', 'kuotaRit', 'bagiHasil'];
 
 export default api(async (req, res) => {
   if (req.method !== 'POST') throw galat(405, 'Metode tidak didukung');
