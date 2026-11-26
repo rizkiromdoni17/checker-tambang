@@ -6,6 +6,14 @@
   // ================= Penyimpanan =================
   var KUNCI = 'checker-tambang-v1';
   var KUNCI_DRAF = 'checker-tambang-draf';
+  var KUNCI_SESI = 'checker-tambang-sesi';
+  // Mode online: data disimpan di database server (Vercel). Dibuka dari file lokal = mode offline lama.
+  var SERVER = (function () {
+    if (location.protocol === 'file:') return null;
+    if (/\.github\.io$/.test(location.hostname)) return 'https://checker-tambang.vercel.app';
+    return '';
+  })();
+  var ONLINE = SERVER !== null;
 
   function dataAwal() {
     return {
@@ -40,6 +48,7 @@
     if (!D.sinkron) D.sinkron = { url: '', kodeKirim: '', kodeBaca: '', terakhirKirim: '', terakhirAmbil: '' };
     if (!D.antrian) D.antrian = { kirim: [], hapus: [] };
     if (D.kuotaRit === undefined) D.kuotaRit = 1000;
+    if (!D.server) D.server = { sejak: '', oleh: '', pengguna: [], tertunda: 0, terakhirTarikSheet: '' };
     var ubah = false;
     D.laporan.forEach(function (l) { if (l.royaltiTarif === undefined) { l.royaltiTarif = D.royalti.tarif; ubah = true; } });
     if (ubah) simpan();
@@ -106,21 +115,114 @@
   function isAdmin() { return pengguna && pengguna.peran === 'admin'; }
   // Akses laporan keuangan (Rekap, royalti, nett, laporan orang lain): admin, atau yang sudah memasukkan PIN Laporan di sesi ini
   var laporanTerbuka = false;
-  function bolehKeuangan() { return !pengguna || isAdmin() || laporanTerbuka; }
+  function bolehKeuangan() { return ONLINE ? isAdmin() : (!pengguna || isAdmin() || laporanTerbuka); }
+  function daftarMasuk() { return ONLINE ? D.server.pengguna : D.pengguna; }
+
+  // ================= Server =================
+  function bacaSesi() { try { return JSON.parse(localStorage.getItem(KUNCI_SESI)); } catch (e) { return null; } }
+  function simpanSesi(x) { try { localStorage.setItem(KUNCI_SESI, JSON.stringify(x)); } catch (e) {} }
+  function hapusSesi() { try { localStorage.removeItem(KUNCI_SESI); } catch (e) {} }
+  function api(path, body) {
+    var s = bacaSesi(), h = {};
+    if (body) h['Content-Type'] = 'application/json';
+    if (s && s.token) h.Authorization = 'Bearer ' + s.token;
+    return fetch(SERVER + path, { method: body ? 'POST' : 'GET', headers: h, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' })
+      .then(function (r) {
+        return r.json().catch(function () { return { ok: false, error: 'Server tidak merespons (' + r.status + ')' }; }).then(function (j) {
+          if (r.status === 401 && s && s.token && path.indexOf('/api/masuk') !== 0) sesiBerakhir();
+          if (!j.ok) { var e = new Error(j.error || 'Gagal'); e.status = r.status; throw e; }
+          return j;
+        });
+      }, function () { throw new Error('Tidak terhubung ke server. Periksa internet.'); });
+  }
+  function sesiBerakhir() {
+    hapusSesi(); if (!pengguna) return;
+    pengguna = null; tampilMasuk(); toast('Sesi berakhir, silakan masuk lagi');
+  }
+  function laporanValid(l) { return l && l.id && /^\d{4}-\d{2}-\d{2}$/.test(l.tanggal || '') && Array.isArray(l.jual) && Array.isArray(l.alat) && Array.isArray(l.lain); }
+  var KUNCI_ATUR = ['profil', 'alat', 'produk', 'aktivitas', 'cuaca', 'royalti', 'kuotaRit'];
+  function kirimPengaturan() {
+    var nilai = {}; KUNCI_ATUR.forEach(function (k) { nilai[k] = D[k]; });
+    return api('/api/admin', { aksi: 'pengaturan', nilai: nilai }).then(function () { return true; })
+      .catch(function (e) { toast('Pengaturan belum tersimpan di server: ' + e.message); return false; });
+  }
+  var sedangTarik = false, terakhirTarikMs = 0;
+  // Ambil perubahan dari server (otomatis tiap 20 detik, saat aplikasi dibuka, dan saat online lagi).
+  function tarikServer(paksa) {
+    if (!ONLINE || !pengguna || sedangTarik || navigator.onLine === false) return Promise.resolve(false);
+    if (!paksa && Date.now() - terakhirTarikMs < 5000) return Promise.resolve(false);
+    sedangTarik = true; terakhirTarikMs = Date.now();
+    var u = pengguna;
+    var sejak = D.server.sejak && D.server.oleh === u.id ? new Date(new Date(D.server.sejak).getTime() - 15000).toISOString() : '';
+    return api('/api/data' + (sejak ? '?sejak=' + encodeURIComponent(sejak) : '')).then(function (j) {
+      sedangTarik = false;
+      if (pengguna !== u) return false;
+      var tunda = function (id) { return D.antrian.kirim.indexOf(id) >= 0 || D.antrian.hapus.indexOf(id) >= 0; };
+      var berubah = 0, aturBerubah = false;
+      if (j.lengkap) {
+        var ada = {}; (j.laporan || []).forEach(function (l) { if (l && l.id) ada[l.id] = 1; });
+        var sisa = D.laporan.filter(function (x) { return ada[x.id] || tunda(x.id); });
+        berubah += D.laporan.length - sisa.length; D.laporan = sisa;
+      }
+      (j.laporan || []).forEach(function (l) {
+        if (!laporanValid(l) || tunda(l.id)) return;
+        var i = D.laporan.findIndex(function (x) { return x.id === l.id; });
+        if (i < 0) { D.laporan.push(l); berubah++; }
+        else if (JSON.stringify(D.laporan[i]) !== JSON.stringify(l)) { D.laporan[i] = l; berubah++; }
+      });
+      (j.hapus || []).forEach(function (id) {
+        if (tunda(id)) return;
+        var n0 = D.laporan.length; D.laporan = D.laporan.filter(function (x) { return x.id !== id; });
+        berubah += n0 - D.laporan.length;
+      });
+      var p = j.pengaturan || {};
+      KUNCI_ATUR.forEach(function (k) {
+        if (p[k] !== undefined && p[k] !== null && JSON.stringify(D[k]) !== JSON.stringify(p[k])) { D[k] = p[k]; aturBerubah = true; }
+      });
+      if (isAdmin() && p.produk === undefined) kirimPengaturan(); // database baru: unggah pengaturan dari HP admin
+      if (j.daftarPengguna) D.server.pengguna = j.daftarPengguna;
+      if (j.tertundaSheet !== undefined) D.server.tertunda = j.tertundaSheet;
+      D.server.terakhirTarikSheet = p.terakhirTarikSheet || '';
+      D.server.sejak = j.waktu; D.server.oleh = u.id;
+      simpan();
+      if (aturBerubah) { isiDatalist(); $('#namaUsaha').textContent = D.profil.nama; }
+      if (berubah || aturBerubah) {
+        isiDatalist();
+        if (halAktif === 'rekap') renderRekap();
+        if (halAktif === 'riwayat') renderRiwayat();
+      }
+      tampilStatusSinkron();
+      return true;
+    }).catch(function () { sedangTarik = false; tampilStatusSinkron(); return false; });
+  }
 
   function tampilMasuk() {
     $('#aplikasi').hidden = true; $('#layarMasuk').hidden = false;
-    dipilih = dipilih && D.pengguna.find(function (u) { return u.id === dipilih.id; }) || D.pengguna[0];
+    var daftar = daftarMasuk();
+    dipilih = dipilih && daftar.find(function (u) { return u.id === dipilih.id; }) || daftar[0] || null;
     pinBuffer = '';
-    $('#daftarPengguna').innerHTML = D.pengguna.map(function (u) { return '<button type="button" data-id="' + u.id + '">' + esc(u.nama) + '</button>'; }).join('');
+    if (ONLINE && !daftar.length) $('#daftarPengguna').innerHTML = '<span class="redup kecil">Memuat daftar pengguna…</span>';
+    else $('#daftarPengguna').innerHTML = daftar.map(function (u) { return '<button type="button" data-id="' + u.id + '">' + esc(u.nama) + '</button>'; }).join('');
     $$('#daftarPengguna button').forEach(function (b) {
       b.classList.toggle('aktif', b.dataset.id === dipilih.id);
       b.onclick = function () {
-        dipilih = D.pengguna.find(function (u) { return u.id === b.dataset.id; }); pinBuffer = ''; titik();
+        dipilih = daftar.find(function (u) { return u.id === b.dataset.id; }); pinBuffer = ''; titik();
         $$('#daftarPengguna button').forEach(function (x) { x.classList.toggle('aktif', x === b); });
       };
     });
     titik();
+    if (ONLINE && !tampilMasuk.memuat) {
+      tampilMasuk.memuat = true;
+      api('/api/masuk').then(function (j) {
+        tampilMasuk.memuat = false;
+        var beda = JSON.stringify(j.pengguna) !== JSON.stringify(D.server.pengguna);
+        D.server.pengguna = j.pengguna; simpan();
+        if (beda && !pengguna) tampilMasuk();
+      }).catch(function (e) {
+        tampilMasuk.memuat = false;
+        if (!daftarMasuk().length) $('#daftarPengguna').innerHTML = '<span class="redup kecil">' + esc(e.message) + '</span>';
+      });
+    }
   }
   function titik() { $$('#pinTitik i').forEach(function (i, k) { i.classList.toggle('isi', k < pinBuffer.length); }); }
   function ketikPin(k) {
@@ -128,12 +230,25 @@
     else if (pinBuffer.length < 4) pinBuffer += k;
     titik();
     if (pinBuffer.length === 4) {
+      if (ONLINE) { masukServer(); return; }
       if (dipilih && dipilih.pin === pinBuffer) masuk(dipilih);
       else { var t = $('#pinTitik'); t.classList.add('salah'); setTimeout(function () { t.classList.remove('salah'); pinBuffer = ''; titik(); }, 350); }
     }
   }
+  var menungguMasuk = false;
+  function pinSalah() { var t = $('#pinTitik'); t.classList.add('salah'); setTimeout(function () { t.classList.remove('salah'); pinBuffer = ''; titik(); }, 350); }
+  function masukServer() {
+    if (menungguMasuk || !dipilih) { if (!dipilih) pinSalah(); return; }
+    if (navigator.onLine === false) { toast('Butuh internet untuk masuk'); pinSalah(); return; }
+    menungguMasuk = true;
+    api('/api/masuk', { id: dipilih.id, pin: pinBuffer }).then(function (j) {
+      menungguMasuk = false; pinBuffer = '';
+      simpanSesi({ token: j.token, pengguna: j.pengguna });
+      masuk(j.pengguna);
+    }).catch(function (e) { menungguMasuk = false; toast(e.message); pinSalah(); });
+  }
   function masuk(u) {
-    pengguna = u; laporanTerbuka = false; try { sessionStorage.setItem('checker-sesi', u.id); } catch (e) {}
+    pengguna = u; laporanTerbuka = false; if (!ONLINE) try { sessionStorage.setItem('checker-sesi', u.id); } catch (e) {}
     $('#layarMasuk').hidden = true; $('#aplikasi').hidden = false;
     $('#namaPengguna').textContent = u.nama + (u.peran === 'admin' ? ' · admin' : '');
     $('#namaUsaha').textContent = D.profil.nama;
@@ -142,9 +257,21 @@
     isiDatalist();
     muatDraf();
     buka('input');
-    kirimAntrian(false);
+    kirimAntrian(false).then(function () { tarikServer(true); });
   }
   function keluar() {
+    if (ONLINE) {
+      if (D.antrian.kirim.length || D.antrian.hapus.length) {
+        bukaDialog('<h3>Masih ada laporan belum terkirim</h3><p>Sambungkan internet dulu supaya laporan terkirim sebelum keluar.</p>' +
+          '<div class="dlg-aksi"><button class="tombol" data-tutup>Batal</button><button class="tombol" id="btnTetapKeluar">Tetap keluar</button></div>',
+          function (dlg) { $('#btnTetapKeluar').onclick = function () { dlg.close(); keluarSekarang(); }; });
+        return;
+      }
+    }
+    keluarSekarang();
+  }
+  function keluarSekarang() {
+    if (ONLINE) { api('/api/masuk', { keluar: true }).catch(function () {}); hapusSesi(); }
     pengguna = null; laporanTerbuka = false; try { sessionStorage.removeItem('checker-sesi'); } catch (e) {}
     tampilMasuk();
   }
@@ -155,6 +282,10 @@
     var s = $('[data-hal="rekap"] span'); if (s) s.textContent = bolehKeuangan() ? 'Rekap' : '🔒 Rekap';
   }
   function mintaPinLaporan() {
+    if (ONLINE) {
+      bukaDialog('<h3>🔒 Laporan keuangan</h3><p>Rekap hanya bisa dibuka dengan akun admin. Keluar lalu masuk sebagai admin.</p><div class="dlg-aksi"><button class="tombol utama" data-tutup>Tutup</button></div>');
+      return;
+    }
     if (!D.pinLaporan) {
       bukaDialog('<h3>Laporan keuangan terkunci</h3><p>Rekap hanya bisa dibuka oleh admin. PIN Laporan belum diatur — minta admin mengaturnya di menu Atur.</p><div class="dlg-aksi"><button class="tombol utama" data-tutup>Tutup</button></div>');
       return;
@@ -176,7 +307,8 @@
     if (hal === 'atur' && !isAdmin()) return;
     if (hal === 'rekap' && !bolehKeuangan()) { mintaPinLaporan(); return; }
     halAktif = hal; sembunyiTip();
-    if (hal === 'rekap' && D.sinkron && D.sinkron.kodeBaca) ambilDariSheet(true);
+    if (ONLINE) tarikServer(false);
+    else if (hal === 'rekap' && D.sinkron && D.sinkron.kodeBaca) ambilDariSheet(true);
     $$('.hal').forEach(function (s) { s.classList.toggle('aktif', s.id === 'hal-' + hal); });
     $$('.nav').forEach(function (b) { b.classList.toggle('aktif', b.dataset.hal === hal); });
     ({ input: renderForm, riwayat: renderRiwayat, rekap: renderRekap, atur: renderAtur })[hal]();
@@ -572,7 +704,7 @@
     }
     if (b.dataset.hapusLap) {
       var x = cariLap(b.dataset.hapusLap);
-      bukaDialog('<h3>Hapus laporan?</h3><p>Laporan ' + esc(fmtTgl(x.tanggal)) + ' – ' + esc(x.lokasi) + ' akan dihapus permanen dari HP ini.</p>' +
+      bukaDialog('<h3>Hapus laporan?</h3><p>Laporan ' + esc(fmtTgl(x.tanggal)) + ' – ' + esc(x.lokasi) + ' akan dihapus permanen' + (ONLINE ? ' untuk semua HP' : ' dari HP ini') + '.</p>' +
         '<div class="dlg-aksi"><button class="tombol" data-tutup>Batal</button><button class="tombol utama" id="btnYaHapus" style="background:var(--bahaya);border-color:var(--bahaya)">Hapus</button></div>',
         function (dlg) { $('#btnYaHapus').onclick = function () { D.laporan = D.laporan.filter(function (l) { return l.id !== x.id; }); antreHapus(x.id); simpan(); dlg.close(); renderRiwayat(); toast('Laporan dihapus'); kirimAntrian(false); }; });
     }
@@ -835,7 +967,7 @@
   }
 
   // ================= Sinkron Google Sheets =================
-  function siapSinkron() { return D.sinkron && D.sinkron.url && D.sinkron.kodeKirim; }
+  function siapSinkron() { return ONLINE || (D.sinkron && D.sinkron.url && D.sinkron.kodeKirim); }
   function antreKirim(id) { D.antrian.kirim = D.antrian.kirim.filter(function (x) { return x !== id; }); D.antrian.kirim.push(id); D.antrian.hapus = D.antrian.hapus.filter(function (x) { return x !== id; }); }
   function antreHapus(id) { D.antrian.kirim = D.antrian.kirim.filter(function (x) { return x !== id; }); if (D.antrian.hapus.indexOf(id) < 0) D.antrian.hapus.push(id); }
   function barisSheet(l) { // satu baris laporan untuk sheet "Laporan Checker"
@@ -865,6 +997,7 @@
     if (sedangKirim) return Promise.resolve(false);
     if (!D.antrian.kirim.length && !D.antrian.hapus.length) { if (manual) toast('Semua laporan sudah terkirim'); return Promise.resolve(true); }
     if (navigator.onLine === false) { if (manual) toast('Tidak ada internet. Laporan akan dikirim otomatis saat online.'); return Promise.resolve(false); }
+    if (ONLINE) return kirimServer(manual);
     sedangKirim = true; tampilStatusSinkron();
     var kirim = D.antrian.kirim.slice(0, 25), hapus = D.antrian.hapus.slice();
     var muatan = { kode: D.sinkron.kodeKirim, laporan: [], hapus: hapus };
@@ -890,6 +1023,33 @@
         if (manual) toast('Gagal mengirim: ' + (String(e.message || e).indexOf('kode') >= 0 ? 'kode kirim salah' : 'periksa internet/URL'));
         return false;
       });
+  }
+  function kirimServer(manual) {
+    if (!pengguna) return Promise.resolve(false);
+    sedangKirim = true; tampilStatusSinkron();
+    var kirim = D.antrian.kirim.slice(0, 50), hapus = D.antrian.hapus.slice(0, 50);
+    var muatan = { laporan: [], hapus: hapus };
+    kirim.forEach(function (id) {
+      var l = D.laporan.find(function (x) { return x.id === id; });
+      if (l) { var x = salinObj(l); x._baris = barisSheet(l); muatan.laporan.push(x); }
+    });
+    return api('/api/laporan', muatan).then(function (j) {
+      var selesai = (j.diterima || []).concat(j.ditolak || [], kirim.filter(function (id) { return !D.laporan.some(function (x) { return x.id === id; }); }));
+      D.antrian.kirim = D.antrian.kirim.filter(function (id) { return selesai.indexOf(id) < 0; });
+      D.antrian.hapus = D.antrian.hapus.filter(function (id) { return (j.dihapus || []).indexOf(id) < 0; });
+      D.sinkron.terakhirKirim = new Date().toISOString(); simpan();
+      sedangKirim = false;
+      if ((j.ditolak || []).length) toast((j.ditolak || []).length + ' laporan ditolak server (bukan milik akun ini)');
+      if (D.antrian.kirim.length && (j.diterima || []).length) return kirimServer(manual);
+      if (manual) toast('Laporan tersimpan di server');
+      tampilStatusSinkron(); tarikServer(true);
+      return true;
+    }).catch(function (e) {
+      sedangKirim = false; tampilStatusSinkron();
+      if (manual) toast('Gagal mengirim: ' + e.message);
+      if (e.status === 403) { D.antrian.hapus = []; simpan(); tampilStatusSinkron(); }
+      return false;
+    });
   }
   var terakhirAmbilMs = 0;
   function ambilDariSheet(diam) {
@@ -924,9 +1084,15 @@
   }
   function tampilStatusSinkron() {
     var el = $('#statusSinkron'); if (!el) return;
-    if (!siapSinkron()) { el.hidden = true; return; }
+    if (!siapSinkron() || (ONLINE && !pengguna)) { el.hidden = true; return; }
     el.hidden = false;
     var n = D.antrian.kirim.length + D.antrian.hapus.length;
+    if (ONLINE) {
+      var off = navigator.onLine === false;
+      el.className = 'status-sinkron' + (n || off ? ' tunda' : '');
+      el.textContent = sedangKirim ? '⟳ Mengirim…' : n ? '⏳ ' + n + ' belum terkirim' : off ? '⚠ Offline' : '✓ Online';
+      return;
+    }
     el.className = 'status-sinkron' + (n ? ' tunda' : '');
     el.textContent = sedangKirim ? '⟳ Mengirim…' : n ? '⏳ ' + n + ' belum terkirim' : '✓ Terkirim';
   }
@@ -995,7 +1161,7 @@
       '<label>Lokasi/blok (satu per baris)<textarea id="atLokasi">' + esc(D.profil.lokasi.join('\n')) + '</textarea></label>' +
       '<label>Pilihan aktivitas (satu per baris)<textarea id="atAktivitas">' + esc(D.aktivitas.join('\n')) + '</textarea></label>' +
       '<label>Pilihan cuaca (satu per baris)<textarea id="atCuaca">' + esc(D.cuaca.join('\n')) + '</textarea></label>' +
-      '<label>PIN Laporan keuangan (4–6 angka) — untuk membuka Rekap selain admin<input id="atPinLap" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" placeholder="' + (D.pinLaporan ? '•••• (sudah diatur, isi untuk mengganti)' : 'belum diatur') + '"></label>' +
+      (ONLINE ? '' : '<label>PIN Laporan keuangan (4–6 angka) — untuk membuka Rekap selain admin<input id="atPinLap" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" placeholder="' + (D.pinLaporan ? '•••• (sudah diatur, isi untuk mengganti)' : 'belum diatur') + '"></label>') +
       '<label>Kuota ritase (rit) — untuk Hitung per ritase<input id="atKuota" inputmode="numeric" class="uang" value="' + nilaiUang(D.kuotaRit) + '"></label>' +
       '<label>Tarif royalti per rit terjual (Rp)<input id="atRoyalti" class="uang" inputmode="numeric" value="' + nilaiUang(D.royalti.tarif) + '"></label>' +
       '</div></div>';
@@ -1006,7 +1172,7 @@
       D.produk.map(function (p) { return barisProduk(p); }).join('') + '</ul><button type="button" class="tautan" id="tambahProduk">+ Tambah produk</button>' +
       '<p class="redup kecil">Harga default otomatis terisi di form, tetapi checker tetap bisa mengubahnya per laporan.</p></div>';
     h += '<div class="aksi" style="margin-bottom:14px"><button class="tombol utama" id="btnSimpanAtur">Simpan pengaturan</button></div>';
-    h += '<div class="panel"><h3>Pengguna &amp; PIN</h3><ul class="daftar-atur">' + D.pengguna.map(function (u) {
+    h += '<div class="panel"><h3>Pengguna &amp; PIN</h3><ul class="daftar-atur">' + daftarMasuk().map(function (u) {
       return '<li><span><b>' + esc(u.nama) + '</b> <span class="redup kecil">· ' + (u.peran === 'admin' ? 'admin' : 'checker') + '</span></span>' +
         '<span class="aksi"><button class="tombol kecil" data-pin="' + u.id + '">Ganti PIN</button>' + (u.id !== pengguna.id ? '<button class="tombol kecil bahaya" data-hapus-user="' + u.id + '">Hapus</button>' : '') + '</span></li>';
     }).join('') + '</ul>' +
@@ -1014,7 +1180,13 @@
       '<select id="uPeran"><option value="checker">Checker</option><option value="admin">Admin</option></select><button class="tombol" id="btnTambahUser">Tambah pengguna</button></div>' +
       '<p class="redup kecil">Checker bisa mengisi &amp; mengubah laporan. Hanya admin yang bisa menghapus laporan dan membuka pengaturan.</p></div>';
     var sk = D.sinkron;
-    h += '<div class="panel"><h3>Sinkron ke Google Sheets</h3><div class="isian">' +
+    if (ONLINE) h += '<div class="panel"><h3>Database online &amp; Google Sheets</h3>' +
+      '<p class="redup kecil">Semua laporan tersimpan di database online dan langsung muncul di semua HP (otomatis tiap 20 detik). Setiap laporan juga diteruskan otomatis ke spreadsheet.</p>' +
+      '<p class="kecil">Belum masuk spreadsheet: <b>' + (D.server.tertunda || 0) + '</b>' +
+      (D.server.terakhirTarikSheet ? ' · terakhir ambil dari spreadsheet ' + esc(fmtWaktuPendek(D.server.terakhirTarikSheet)) : '') + '</p>' +
+      '<div class="aksi wrap"><button class="tombol" id="btnSrvKirim">Kirim ulang ke spreadsheet</button>' +
+      '<button class="tombol" id="btnSrvTarik">Ambil data dari spreadsheet</button></div></div>';
+    else h += '<div class="panel"><h3>Sinkron ke Google Sheets</h3><div class="isian">' +
       '<label>URL Aplikasi Web (Apps Script)<input id="skUrl" value="' + esc(sk.url) + '" placeholder="https://script.google.com/macros/s/…/exec"></label>' +
       '<label>Kode kirim (pasang di semua HP)<input id="skKirim" value="' + esc(sk.kodeKirim) + '" autocomplete="off"></label>' +
       '<label>Kode baca (HANYA di HP admin — kosongkan di HP checker)<input id="skBaca" type="password" value="' + esc(sk.kodeBaca) + '" autocomplete="new-password"></label>' +
@@ -1031,7 +1203,8 @@
       '<label class="tombol" style="display:inline-flex;color:var(--teks)">Impor laporan (gabung)<input type="file" id="fileImpor" accept=".json,application/json" hidden></label>' +
       '<button class="tombol bahaya" id="btnReset">Hapus semua data</button></div>' +
       '<p class="redup kecil">"Impor laporan (gabung)" menambah/memperbarui laporan dari file tanpa mengubah PIN, pengguna, dan laporan lain di HP ini.</p>' +
-      '<p class="redup kecil">Semua data hanya tersimpan di HP/perangkat ini. Lakukan backup rutin (mis. seminggu sekali) dan simpan filenya di tempat lain.</p></div>';
+      '<p class="redup kecil">' + (ONLINE ? 'Data utama tersimpan di database online; HP ini menyimpan salinannya agar tetap bisa dipakai tanpa internet. "Hapus semua data" hanya menghapus salinan di HP ini.' :
+        'Semua data hanya tersimpan di HP/perangkat ini. Lakukan backup rutin (mis. seminggu sekali) dan simpan filenya di tempat lain.') + '</p></div>';
     $('#isiAtur').innerHTML = h;
   }
   function barisAlat(a) {
@@ -1045,7 +1218,7 @@
   function baris(teks) { return teks.split('\n').map(function (x) { return x.trim(); }).filter(Boolean); }
 
   function simpanAtur() {
-    var pinLap = $('#atPinLap').value.trim();
+    var pinLap = $('#atPinLap') ? $('#atPinLap').value.trim() : '';
     if (pinLap && !/^\d{4,6}$/.test(pinLap)) { toast('PIN Laporan harus 4–6 angka'); return; }
     D.profil.nama = $('#atNama').value.trim() || 'Usaha Tambang';
     D.profil.lokasi = baris($('#atLokasi').value);
@@ -1062,7 +1235,8 @@
     }).filter(function (p) { return p.nama; });
     simpan(); isiDatalist();
     $('#namaUsaha').textContent = D.profil.nama;
-    toast('Pengaturan disimpan. Berlaku untuk laporan baru.');
+    if (ONLINE) kirimPengaturan().then(function (ok) { if (ok) toast('Pengaturan disimpan untuk semua HP'); });
+    else toast('Pengaturan disimpan. Berlaku untuk laporan baru.');
     renderAtur();
   }
 
@@ -1076,22 +1250,41 @@
       var nm = $('#uNama').value.trim(), pin = $('#uPin').value.trim();
       if (!nm) { toast('Isi nama'); return; }
       if (!/^\d{4}$/.test(pin)) { toast('PIN harus 4 angka'); return; }
+      if (ONLINE) {
+        api('/api/admin', { aksi: 'tambahPengguna', nama: nm, pin: pin, peran: $('#uPeran').value })
+          .then(function () { toast('Pengguna ditambahkan'); return tarikServer(true); }).then(renderAtur)
+          .catch(function (e) { toast(e.message); });
+        return;
+      }
       D.pengguna.push({ id: uid('u'), nama: nm, pin: pin, peran: $('#uPeran').value }); simpan(); renderAtur(); toast('Pengguna ditambahkan'); return;
     }
     if (el.dataset.pin) {
-      var u = D.pengguna.find(function (x) { return x.id === el.dataset.pin; });
+      var u = daftarMasuk().find(function (x) { return x.id === el.dataset.pin; });
       bukaDialog('<h3>Ganti PIN ' + esc(u.nama) + '</h3><label>PIN baru (4 angka)<input id="pinBaru" inputmode="numeric" maxlength="4"></label>' +
         '<div class="dlg-aksi"><button class="tombol" data-tutup>Batal</button><button class="tombol utama" id="btnPinOk">Simpan</button></div>',
         function (dlg) {
           $('#btnPinOk').onclick = function () {
             var p = $('#pinBaru').value.trim();
             if (!/^\d{4}$/.test(p)) { toast('PIN harus 4 angka'); return; }
+            if (ONLINE) { api('/api/admin', { aksi: 'gantiPin', id: u.id, pin: p }).then(function () { dlg.close(); toast('PIN diganti'); }).catch(function (e) { toast(e.message); }); return; }
             u.pin = p; simpan(); dlg.close(); toast('PIN diganti');
           };
         });
       return;
     }
     if (el.dataset.hapusUser) {
+      if (ONLINE) {
+        var tu = daftarMasuk().find(function (x) { return x.id === el.dataset.hapusUser; });
+        bukaDialog('<h3>Hapus pengguna ' + esc(tu.nama) + '?</h3><p>Pengguna ini tidak bisa masuk lagi. Laporan yang sudah dibuat tetap tersimpan.</p>' +
+          '<div class="dlg-aksi"><button class="tombol" data-tutup>Batal</button><button class="tombol utama" id="btnYaHapusU" style="background:var(--bahaya);border-color:var(--bahaya)">Hapus</button></div>',
+          function (dlg) {
+            $('#btnYaHapusU').onclick = function () {
+              api('/api/admin', { aksi: 'hapusPengguna', id: tu.id }).then(function () { dlg.close(); toast('Pengguna dihapus'); return tarikServer(true); }).then(renderAtur)
+                .catch(function (e) { toast(e.message); });
+            };
+          });
+        return;
+      }
       var target = D.pengguna.find(function (x) { return x.id === el.dataset.hapusUser; });
       var sisaAdmin = D.pengguna.filter(function (x) { return x.peran === 'admin' && x.id !== target.id; }).length;
       if (target.peran === 'admin' && !sisaAdmin) { toast('Minimal harus ada satu admin'); return; }
@@ -1121,6 +1314,26 @@
       D.laporan.forEach(function (l) { antreKirim(l.id); }); simpan();
       kirimAntrian(true).then(function () { renderAtur(); }); return;
     }
+    if (el.id === 'btnSrvKirim') {
+      toast('Mengirim ke spreadsheet…');
+      api('/api/admin', { aksi: 'kirimSheet' }).then(function (j) { toast(j.dilewati ? 'Spreadsheet belum diatur di server' : j.terkirim + ' laporan dikirim ke spreadsheet'); return tarikServer(true); })
+        .then(renderAtur).catch(function (e) { toast(e.message); });
+      return;
+    }
+    if (el.id === 'btnSrvTarik') {
+      bukaDialog('<h3>Ambil data dari spreadsheet?</h3><p>Database online akan disamakan dengan spreadsheet (sheet Input Harian &amp; Laporan Checker). Laporan yang sudah dihapus dari spreadsheet ikut terhapus dari aplikasi.</p>' +
+        '<div class="dlg-aksi"><button class="tombol" data-tutup>Batal</button><button class="tombol utama" id="btnYaTarik">Ambil</button></div>',
+        function (dlg) {
+          $('#btnYaTarik').onclick = function () {
+            dlg.close(); toast('Mengambil dari spreadsheet… (bisa 30 detik)');
+            api('/api/admin', { aksi: 'tarikSheet' }).then(function (j) {
+              toast('Selesai: ' + j.baru + ' baru, ' + j.ganti + ' berubah' + (j.buang ? ', ' + j.buang + ' dihapus' : ''));
+              return tarikServer(true);
+            }).then(renderAtur).catch(function (e) { toast(e.message); });
+          };
+        });
+      return;
+    }
     if (el.id === 'btnSkAmbil') { ambilDariSheet(false).then(function () { renderAtur(); }); return; }
     if (el.id === 'btnBackup') {
       unduh('backup-checker-tambang-' + hariIni() + '.json', JSON.stringify(D, null, 1), 'application/json'); return;
@@ -1132,7 +1345,7 @@
         function (dlg) {
           $('#btnYaReset').onclick = function () {
             if ($('#konfHapus').value.trim().toUpperCase() !== 'HAPUS') { toast('Ketik HAPUS dulu'); return; }
-            D = dataAwal(); simpan(); hapusDraf(); dlg.close(); keluar(); toast('Semua data dihapus');
+            D = dataAwal(); simpan(); muat(); hapusDraf(); dlg.close(); keluarSekarang(); toast('Semua data dihapus');
           };
         });
     }
@@ -1146,7 +1359,7 @@
         if (!x || !Array.isArray(x.laporan) || !Array.isArray(x.pengguna)) throw new Error('format');
         bukaDialog('<h3>Pulihkan backup?</h3><p>Data di HP ini akan diganti dengan isi backup (' + x.laporan.length + ' laporan).</p>' +
           '<div class="dlg-aksi"><button class="tombol" data-tutup>Batal</button><button class="tombol utama" id="btnYaPulih">Pulihkan</button></div>',
-          function (dlg) { $('#btnYaPulih').onclick = function () { D = x; simpan(); dlg.close(); toast('Backup dipulihkan, silakan masuk lagi'); keluar(); }; });
+          function (dlg) { $('#btnYaPulih').onclick = function () { D = x; simpan(); muat(); dlg.close(); toast('Backup dipulihkan, silakan masuk lagi'); keluar(); }; });
       } catch (e) { toast('File backup tidak valid'); }
     };
     r.readAsText(file);
@@ -1171,11 +1384,13 @@
             valid.forEach(function (l) {
               var i = D.laporan.findIndex(function (y) { return y.id === l.id; });
               if (i >= 0) D.laporan[i] = l; else D.laporan.push(l);
+              if (ONLINE) antreKirim(l.id);
             });
             produkBaru.forEach(function (p) { D.produk.push({ id: uid('p'), nama: p.nama, harga: p.harga, satuan: p.satuan || 'rit' }); });
             if (x.royalti && x.royalti.tarif && !n(D.royalti.tarif)) D.royalti = { tarif: x.royalti.tarif };
             simpan(); isiDatalist(); dlg.close(); renderAtur();
             toast(valid.length + ' laporan diimpor');
+            if (ONLINE) kirimAntrian(true);
           };
         });
     };
@@ -1232,12 +1447,27 @@
       if (e.target.id === 'fileImpor' && e.target.files[0]) { imporGabung(e.target.files[0]); e.target.value = ''; }
     });
 
-    window.addEventListener('online', function () { kirimAntrian(false); });
-    setInterval(function () { if (pengguna && (D.antrian.kirim.length || D.antrian.hapus.length)) kirimAntrian(false); }, 60000);
-    $('#statusSinkron').addEventListener('click', function () { kirimAntrian(true); });
-    var sesi = null; try { sesi = sessionStorage.getItem('checker-sesi'); } catch (e) {}
-    var u = sesi && D.pengguna.find(function (x) { return x.id === sesi; });
-    if (u) masuk(u); else tampilMasuk();
+    window.addEventListener('online', function () { kirimAntrian(false).then(function () { tarikServer(true); }); });
+    window.addEventListener('offline', tampilStatusSinkron);
+    if (ONLINE) {
+      setInterval(function () {
+        if (!pengguna || document.visibilityState === 'hidden') return;
+        if (D.antrian.kirim.length || D.antrian.hapus.length) kirimAntrian(false);
+        tarikServer(false);
+      }, 20000);
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible' && pengguna) kirimAntrian(false).then(function () { tarikServer(true); });
+      });
+    } else setInterval(function () { if (pengguna && (D.antrian.kirim.length || D.antrian.hapus.length)) kirimAntrian(false); }, 60000);
+    $('#statusSinkron').addEventListener('click', function () { kirimAntrian(true).then(function () { tarikServer(true); }); });
+    if (ONLINE) {
+      var s = bacaSesi();
+      if (s && s.token && s.pengguna) masuk(s.pengguna); else tampilMasuk();
+    } else {
+      var sesi = null; try { sesi = sessionStorage.getItem('checker-sesi'); } catch (e) {}
+      var u = sesi && D.pengguna.find(function (x) { return x.id === sesi; });
+      if (u) masuk(u); else tampilMasuk();
+    }
 
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       navigator.serviceWorker.register('sw.js').catch(function () {});
