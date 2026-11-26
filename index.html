@@ -67,6 +67,17 @@
       </div>
       <p class="redup kecil" id="periodeRekap"></p>
       <div class="kartu-angka" id="kartuAngka"></div>
+      <div class="panel" id="panelPerRit">
+        <h3>Hitung per ritase</h3>
+        <p class="redup kecil" style="margin-top:-6px">Dihitung dari awal data, berurutan per tanggal. Masukkan jumlah rit untuk melihat omset, pengeluaran, dan net tepat sampai rit itu.</p>
+        <div class="rit-kontrol">
+          <label>Sampai rit ke-<input id="ritTarget" type="number" inputmode="numeric" min="1" step="1"></label>
+          <div class="chips" id="ritCepat"></div>
+        </div>
+        <input id="ritSlider" type="range" min="1" step="1" class="rit-slider" aria-label="Geser jumlah rit">
+        <div id="ritHasil"></div>
+        <details class="rit-detail"><summary>Tabel per hari per ritase</summary><div class="tabel-bungkus"><table class="tabel" id="tabelPerRit"></table></div></details>
+      </div>
       <div class="panel" id="panelPerBulan" hidden><h3>Ringkasan per bulan</h3><div class="tabel-bungkus"><table class="tabel" id="tabelPerBulan"></table></div></div>
       <div class="panel">
         <h3>Kirim ke spreadsheet keuangan</h3>

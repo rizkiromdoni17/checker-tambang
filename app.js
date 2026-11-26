@@ -39,6 +39,7 @@
     if (!D.royalti) { D.royalti = { tarif: 550000 }; simpan(); }
     if (!D.sinkron) D.sinkron = { url: '', kodeKirim: '', kodeBaca: '', terakhirKirim: '', terakhirAmbil: '' };
     if (!D.antrian) D.antrian = { kirim: [], hapus: [] };
+    if (D.kuotaRit === undefined) D.kuotaRit = 1000;
     var ubah = false;
     D.laporan.forEach(function (l) { if (l.royaltiTarif === undefined) { l.royaltiTarif = D.royalti.tarif; ubah = true; } });
     if (ubah) simpan();
@@ -600,6 +601,7 @@
       ? 'Periode ' + fmtTglPanjang(daftar[0].tanggal) + ' sampai ' + fmtTglPanjang(daftar[daftar.length - 1].tanggal) + ' · ' + daftar.length + ' laporan'
       : fmtBulan(bln.value) + ' · ' + daftar.length + ' laporan';
     renderPerBulan(semua ? daftar : []);
+    renderPerRit();
     var tot = { royalti: 0, rit: 0, jual: 0, keluar: 0, solar: 0, liter: 0, upah: 0, sewa: 0, makan: 0, transport: 0, lain: 0, jamAlat: 0 };
     var perProduk = {}, urutProduk = [];
     daftar.forEach(function (l) {
@@ -633,6 +635,84 @@
         var t = hitung(l);
         return '<tr><td>' + fmtTgl(l.tanggal) + '</td><td>' + esc(l.lokasi) + '</td><td class="k">' + (kosong(l.ritase) ? '-' : desimal(l.ritase)) + '</td><td class="k">' + ribu(t.jual) + '</td><td class="k">' + ribu(t.keluar) + '</td><td class="k">' + ribu(t.royalti) + '</td><td class="k ' + (t.nett < 0 ? 'merah' : '') + '">' + ribu(t.nett) + '</td></tr>';
       }).join('') + '</tbody><tfoot><tr><td colspan="2">Total</td><td class="k">' + desimal(tot.rit) + '</td><td class="k">' + ribu(tot.jual) + '</td><td class="k">' + ribu(tot.keluar) + '</td><td class="k">' + ribu(tot.royalti) + '</td><td class="k">' + ribu(nett) + '</td></tr></tfoot>';
+  }
+
+  // ---------- Hitung per ritase ----------
+  // Data seluruh periode dikelompokkan per tanggal, berurutan.
+  function dataHarianRit() {
+    var per = {}, urut = [];
+    D.laporan.slice().sort(function (a, b) { return a.tanggal < b.tanggal ? -1 : a.tanggal > b.tanggal ? 1 : 0; }).forEach(function (l) {
+      var t = hitung(l);
+      if (!per[l.tanggal]) { per[l.tanggal] = { tanggal: l.tanggal, rit: 0, jual: 0, ops: 0, royalti: 0 }; urut.push(l.tanggal); }
+      var p = per[l.tanggal]; p.rit += t.qtyJual; p.jual += t.jual; p.ops += t.keluar; p.royalti += t.royalti;
+    });
+    return urut.map(function (k) { return per[k]; });
+  }
+  // Total sampai rit ke-N. Hari yang memuat rit ke-N dihitung sebanding (rit terpakai ÷ rit hari itu);
+  // hari tanpa penjualan sebelum titik itu ikut dihitung biayanya.
+  function hitungSampaiRit(N) {
+    var hari = dataHarianRit(), kum = 0, h = { jual: 0, ops: 0, royalti: 0, rit: 0, tanggal: '', sebagian: null, tercapai: false };
+    for (var i = 0; i < hari.length; i++) {
+      var p = hari[i];
+      if (p.rit > 0 && kum + p.rit >= N) {
+        var pakai = N - kum, f = pakai / p.rit;
+        h.jual += p.jual * f; h.ops += p.ops * f; h.royalti += p.royalti * f; h.rit = N;
+        h.tanggal = p.tanggal; h.tercapai = true;
+        if (pakai < p.rit) h.sebagian = { pakai: pakai, total: p.rit };
+        break;
+      }
+      h.jual += p.jual; h.ops += p.ops; h.royalti += p.royalti; kum += p.rit; h.rit = kum;
+      if (p.rit > 0) h.tanggal = p.tanggal;
+    }
+    h.keluar = h.ops + h.royalti; h.net = h.jual - h.keluar;
+    return h;
+  }
+  function renderPerRit() {
+    var panel = $('#panelPerRit'); if (!panel) return;
+    var hari = dataHarianRit(), total = hari.reduce(function (s, p) { return s + p.rit; }, 0);
+    panel.hidden = !total;
+    if (!total) return;
+    var inp = $('#ritTarget'), sl = $('#ritSlider'), kuota = n(D.kuotaRit);
+    var maks = Math.max(total, kuota || 0);
+    sl.max = maks; inp.max = maks;
+    if (!inp.value) inp.value = kuota && kuota <= total ? kuota : total;
+    var N = Math.max(1, Math.min(maks, Math.round(n(inp.value)) || 1));
+    sl.value = N;
+    var cepat = [];
+    if (kuota) cepat.push(['Kuota ' + ribu(kuota), kuota]);
+    [100, 250, 500].forEach(function (x) { if (x < total && x !== kuota) cepat.push([ribu(x), x]); });
+    cepat.push(['Semua (' + ribu(total) + ')', total]);
+    $('#ritCepat').innerHTML = cepat.map(function (c) { return '<button type="button" class="chip' + (c[1] === N ? ' aktif' : '') + '" data-rit="' + c[1] + '">' + c[0] + '</button>'; }).join('');
+
+    var h = hitungSampaiRit(N);
+    var info = '';
+    if (!h.tercapai) info = 'Baru <b>' + ribu(total) + ' rit</b> terjual. Rit ke-' + ribu(N) + ' belum tercapai, jadi angka di bawah adalah total semua data.';
+    else info = 'Rit ke-<b>' + ribu(N) + '</b> tercapai pada <b>' + fmtTglPanjang(h.tanggal) + '</b>' +
+      (h.sebagian ? ' (dipakai ' + ribu(h.sebagian.pakai) + ' dari ' + ribu(h.sebagian.total) + ' rit hari itu; omset & biaya hari itu dihitung sebanding)' : '') + '.';
+    if (kuota) {
+      var sisa = kuota - total;
+      info += '<br>Kuota ' + ribu(kuota) + ' rit: terjual ' + ribu(total) + ' rit · ' + (sisa >= 0 ? 'sisa <b>' + ribu(sisa) + ' rit</b>' : '<b class="merah">lebih ' + ribu(-sisa) + ' rit</b>') + '.';
+    }
+    var rit = h.rit || 1, tanda = function (v) { return (v < 0 ? '−' : '') + rp(Math.abs(v)); };
+    var kartu = function (judul, nilai, sub, sorot) { return '<div class="angka' + (sorot ? ' sorot' : '') + '"><small>' + judul + '</small><b>' + nilai + '</b>' + (sub ? '<div class="rit-sub"' + (sorot ? ' style="color:#c9cbe0"' : '') + '>' + sub + '</div>' : '') + '</div>'; };
+    $('#ritHasil').innerHTML = '<div class="rit-info">' + info + '</div>' +
+      '<div class="rit-grid">' +
+      kartu('Omset', rp(h.jual), rp(h.jual / rit) + ' / rit') +
+      kartu('Operasional', rp(h.ops), rp(h.ops / rit) + ' / rit') +
+      kartu('Royalti', rp(h.royalti), rp(h.royalti / rit) + ' / rit') +
+      kartu('Net (setelah royalti)', tanda(h.net), tanda(h.net / rit) + ' / rit', true) +
+      '</div><p class="rit-catatan">Total pengeluaran ' + rp(h.keluar) + ' (' + rp(h.keluar / rit) + ' / rit). Net belum dikurangi modal awal.</p>';
+
+    // tabel per hari
+    var kum = 0;
+    $('#tabelPerRit').innerHTML = '<thead><tr><th>Tanggal</th><th class="k">Rit</th><th class="k">Kumulatif</th><th class="k">Omset/rit</th><th class="k">Biaya/rit</th><th class="k">Net/rit</th><th class="k">Net hari itu</th></tr></thead><tbody>' +
+      hari.map(function (p) {
+        kum += p.rit;
+        var biaya = p.ops + p.royalti, net = p.jual - biaya;
+        var per = function (v) { return p.rit ? ribu(v / p.rit) : '-'; };
+        var lewat = kuota && kum > kuota && kum - p.rit < kuota;
+        return '<tr' + (lewat ? ' style="background:#fff7e6"' : '') + '><td>' + fmtTgl(p.tanggal) + (lewat ? ' ⚑' : '') + '</td><td class="k">' + (p.rit ? ribu(p.rit) : '-') + '</td><td class="k">' + ribu(kum) + '</td><td class="k">' + per(p.jual) + '</td><td class="k">' + per(biaya) + '</td><td class="k' + (net < 0 ? ' merah' : '') + '">' + per(net) + '</td><td class="k' + (net < 0 ? ' merah' : '') + '">' + ribu(net) + '</td></tr>';
+      }).join('') + '</tbody>' + (kuota ? '<tfoot><tr><td colspan="7" style="font-weight:400;font-size:12px;color:var(--redup)">⚑ = hari kuota ' + ribu(kuota) + ' rit terlampaui. Hari tanpa penjualan tetap ada biayanya.</td></tr></tfoot>' : '');
   }
 
   function renderPerBulan(daftar) {
@@ -916,6 +996,7 @@
       '<label>Pilihan aktivitas (satu per baris)<textarea id="atAktivitas">' + esc(D.aktivitas.join('\n')) + '</textarea></label>' +
       '<label>Pilihan cuaca (satu per baris)<textarea id="atCuaca">' + esc(D.cuaca.join('\n')) + '</textarea></label>' +
       '<label>PIN Laporan keuangan (4–6 angka) — untuk membuka Rekap selain admin<input id="atPinLap" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" placeholder="' + (D.pinLaporan ? '•••• (sudah diatur, isi untuk mengganti)' : 'belum diatur') + '"></label>' +
+      '<label>Kuota ritase (rit) — untuk Hitung per ritase<input id="atKuota" inputmode="numeric" class="uang" value="' + nilaiUang(D.kuotaRit) + '"></label>' +
       '<label>Tarif royalti per rit terjual (Rp)<input id="atRoyalti" class="uang" inputmode="numeric" value="' + nilaiUang(D.royalti.tarif) + '"></label>' +
       '</div></div>';
     h += '<div class="panel"><h3>Alat berat (nama · jenis · tarif sewa/jam)</h3><ul class="daftar-atur" id="atAlat">' +
@@ -972,6 +1053,7 @@
     D.cuaca = baris($('#atCuaca').value);
     if (pinLap) D.pinLaporan = pinLap;
     D.royalti = { tarif: parseUang($('#atRoyalti').value) };
+    D.kuotaRit = parseUang($('#atKuota').value);
     D.alat = $$('#atAlat li').map(function (li) {
       return { id: li.dataset.id, nama: $('[data-a="nama"]', li).value.trim(), jenis: $('[data-a="jenis"]', li).value.trim(), tarif: parseUang($('[data-a="tarif"]', li).value) };
     }).filter(function (a) { return a.nama; });
@@ -1129,6 +1211,9 @@
     $('#bulanRiwayat').addEventListener('change', renderRiwayat);
     $('#daftarLaporan').addEventListener('click', onKlikRiwayat);
     $('#bulanRekap').addEventListener('change', renderRekap);
+    $('#ritTarget').addEventListener('input', function () { renderPerRit(); });
+    $('#ritSlider').addEventListener('input', function (e) { $('#ritTarget').value = e.target.value; renderPerRit(); });
+    $('#ritCepat').addEventListener('click', function (e) { var b = e.target.closest('[data-rit]'); if (b) { $('#ritTarget').value = b.dataset.rit; renderPerRit(); } });
     $('#modeRekap').addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) { modeRekap = b.dataset.mode; renderRekap(); } });
     var halRekap = $('#hal-rekap');
     halRekap.addEventListener('pointerover', function (e) { var k = e.target.closest('.kolom'); if (k && e.pointerType === 'mouse') tampilTip(k, e); });
@@ -1161,7 +1246,7 @@
 
   // untuk pengujian di luar browser
   if (typeof window.__CT_TEST__ !== 'undefined') {
-    window.__CT_TEST__ = { teksWA: teksWA, hitung: hitung, tabelEkspor: tabelEkspor, setD: function (x) { D = x; }, dataAwal: dataAwal };
+    window.__CT_TEST__ = { hitungSampaiRit: hitungSampaiRit, teksWA: teksWA, hitung: hitung, tabelEkspor: tabelEkspor, setD: function (x) { D = x; }, dataAwal: dataAwal };
     return;
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mulai); else mulai();
